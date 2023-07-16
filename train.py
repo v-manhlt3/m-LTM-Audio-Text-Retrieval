@@ -7,7 +7,8 @@
 import os
 import argparse
 import torch
-from trainer.trainer import train
+# from trainer.trainer import train
+from trainer.trainer_minibatch2 import train
 from tools.config_loader import get_config
 
 
@@ -25,8 +26,8 @@ if __name__ == '__main__':
     #                     help='Dataset used')
     # parser.add_argument('-l', '--lr', default=0.0001, type=float,
     #                     help='Learning rate')
-    # parser.add_argument('-c', '--config', default='settings', type=str,
-    #                     help='Name of the setting file.')
+    parser.add_argument('-c', '--config', default='settings', type=str,
+                        help='Name of the setting file.')
     # parser.add_argument('-o', '--loss', default='weight', type=str,
     #                     help='Name of the loss function.')
     # parser.add_argument('-f', '--freeze', default='False', type=str,

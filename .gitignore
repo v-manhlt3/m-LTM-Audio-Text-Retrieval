@@ -1,0 +1,5 @@
+outputs/*
+tuning-output/*
+logs/*
+pretrained_models/*
+data/*

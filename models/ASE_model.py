@@ -11,7 +11,7 @@ import numpy as np
 import torch.nn.functional as F
 from tools.utils import l2norm
 from models.AudioEncoder import Cnn10, ResNet38, Cnn14
-from models.TextEncoder import BertEncoder, W2VEncoder
+from models.TextEncoder import BertEncoder
 from models.BERT_Config import MODELS
 
 
@@ -80,13 +80,13 @@ class ASE(nn.Module):
                 nn.ReLU(),
                 nn.Linear(joint_embed * 2, joint_embed)
             )
-        elif config.text_encoder == 'w2v':
-            self.text_enc = W2VEncoder(config)
-            self.text_linear = nn.Sequential(
-                nn.Linear(300, joint_embed),
-                nn.ReLU(),
-                nn.Linear(joint_embed, joint_embed)
-            )
+        # elif config.text_encoder == 'w2v':
+        #     self.text_enc = W2VEncoder(config)
+        #     self.text_linear = nn.Sequential(
+        #         nn.Linear(300, joint_embed),
+        #         nn.ReLU(),
+        #         nn.Linear(joint_embed, joint_embed)
+        #     )
 
     def encode_audio(self, audios):
         return self.audio_enc(audios)

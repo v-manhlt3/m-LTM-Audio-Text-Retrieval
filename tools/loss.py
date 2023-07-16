@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from sentence_transformers import util
 import torch.nn.functional as F
+import ot
 
 
 class TripletLoss(nn.Module):
@@ -178,3 +179,51 @@ class WeightTriplet(nn.Module):
         loss = self.polyloss(scores, labels)
         return loss
 
+
+
+class POTLoss(nn.Module):
+
+    def __init__(self, epsilon=0.05, m=0.95, use_cosine=False, tau=0.7):
+        super(POTLoss, self).__init__()
+        self.epsilon = epsilon
+        self.m = m
+        self.use_cosine = use_cosine
+        self.temp = tau
+        # self.metric = metric
+    
+    def forward(self, audio_emb, text_emb, labels):
+        batch_size = audio_emb.size(0)
+        a = torch.ones(batch_size)/batch_size
+        b = torch.ones(batch_size)/batch_size
+        a = a.to(audio_emb.device)
+        b = b.to(audio_emb.device)
+        # print("labels: ", labels)
+        true_label = torch.arange(batch_size).to(torch.int64).to(audio_emb.device)
+
+        if self.use_cosine:
+            M_dist = util.cos_sim(audio_emb, text_emb) 
+            M_dist = 1 - M_dist
+        else:
+            M_dist = ot.dist(audio_emb, text_emb)
+        M_dist = M_dist /M_dist.max()
+        pi = ot.sinkhorn(a,b,M_dist, reg=self.epsilon, numItermax=10)
+        # pi = ot.partial.entropic_partial_wasserstein(a, b, M_dist, reg=self.epsilon, m=self.m,numItermax=20)
+        # print(pi)
+        loss = F.cross_entropy(pi, true_label)
+        # print("loss: ", loss)
+        return loss
+
+    def get_aligment(self, audio_emb, text_emb):
+        batch_size = audio_emb.size(0)
+        a = torch.ones(batch_size)/batch_size
+        b = torch.ones(batch_size)/batch_size
+        a = a.to(audio_emb.device)
+        b = b.to(audio_emb.device)
+        # print("labels: ", labels)
+        true_label = torch.arange(batch_size).to(torch.int64).to(audio_emb.device)
+
+        M_dist = ot.dist(audio_emb, text_emb)
+        M_dist = M_dist /M_dist.max()
+
+        pi = ot.partial.entropic_partial_wasserstein(a, b, M_dist, reg=self.epsilon, m=self.m,numItermax=100)
+        return pi

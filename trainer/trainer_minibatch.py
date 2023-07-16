@@ -13,7 +13,8 @@ from pathlib import Path
 from loguru import logger
 from pprint import PrettyPrinter
 from torch.utils.tensorboard import SummaryWriter
-from tools.utils import setup_seed, AverageMeter, a2t, t2a
+from tools.utils import setup_seed, AverageMeter, a2t_ot, t2a_ot, \
+                            a2t_ot_full2, t2a_ot_full, t2a_ot_sampling, t2a, a2t
 from tools.loss import BiDirectionalRankingLoss, TripletLoss, NTXent, WeightTriplet, POTLoss
 from models.ASE_model import ASE
 from data_handling.DataLoader import get_dataloader
@@ -27,15 +28,13 @@ def train(config):
     # set up logger
     exp_name = config.exp_name
 
-    folder_name = '{}_data_{}_freeze_{}_lr_{}_' \
-                  'margin_{}_seed_{}'.format(exp_name, config.dataset,
-                                             str(config.training.freeze),
-                                             config.training.lr,
-                                             config.training.margin,
-                                             config.training.seed)
+    folder_name = '{}_data_{}_eps{}_m{}_lr_{}_'.format(exp_name, config.dataset,
+                                             config.training.epsilon,
+                                             config.training.m,
+                                             config.training.lr)
 
-    log_output_dir = Path('outputs', folder_name, 'logging')
-    model_output_dir = Path('outputs', folder_name, 'models')
+    log_output_dir = Path('tuning-output', folder_name, 'logging')
+    model_output_dir = Path('tuning-output', folder_name, 'models')
     log_output_dir.mkdir(parents=True, exist_ok=True)
     model_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -75,7 +74,7 @@ def train(config):
     elif config.training.loss == 'weight':
         criterion = WeightTriplet(margin=config.training.margin)
     elif config.training.loss == 'pot':
-        criterion = POTLoss(epsilon=0.04, m=0.94)
+        criterion = POTLoss(epsilon=config.training.epsilon, m=config.training.m, use_cosine=config.training.use_cosine)
     else:
         criterion = BiDirectionalRankingLoss(margin=config.training.margin)
 
@@ -94,16 +93,13 @@ def train(config):
     if config.training.resume:
         checkpoint = torch.load(config.path.resume_model)
         model.load_state_dict(checkpoint['model'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
+        # optimizer.load_state_dict(checkpoint['optimizer'])
         ep = checkpoint['epoch']
 
     # training loop
     recall_sum = []
     # test validation
-    # print()
-    # start_time = time.time()
-    # validate(test_loader, model, device, use_ot=True)
-    # print("evaluation time: ", (time.time()-start_time))
+    # validate(test_loader, model, device,config.training.use_ot, config.training.use_cosine)
 
     for epoch in range(ep, config.training.epochs + 1):
         main_logger.info(f'Training for epoch [{epoch}]')
@@ -140,7 +136,7 @@ def train(config):
 
         # validation loop, validation after each epoch
         main_logger.info("Validating...")
-        r1, r5, r10, r50, medr, meanr = validate(val_loader, model, device, use_ot=True)
+        r1, r5, r10, r50, medr, meanr = validate(val_loader, model, device, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
         r_sum = r1 + r5 + r10
         recall_sum.append(r_sum)
 
@@ -168,15 +164,18 @@ def train(config):
     model.load_state_dict(best_checkpoint['model'])
     best_epoch = best_checkpoint['epoch']
     main_logger.info(f'Best checkpoint occurred in {best_epoch} th epoch.')
-    validate(test_loader, model, device, use_ot=True)
+    validate(test_loader, model, device, use_ot=config.training.use_ot,  use_cosine=config.training.use_cosine)
     main_logger.info('Evaluation done.')
     writer.close()
 
 
-def validate(data_loader, model, device, use_ot=False):
+def validate(data_loader, model, device, use_ot=False, use_cosine=True):
 
     val_logger = logger.bind(indent=1)
     model.eval()
+    t2a_metrics = {"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
+    a2t_metrics = {"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
+
     with torch.no_grad():
         # numpy array to keep all embeddings in the dataset
         audio_embs, cap_embs = None, None
@@ -185,6 +184,7 @@ def validate(data_loader, model, device, use_ot=False):
             audios, captions, audio_ids, indexs = batch_data
             # move data to GPU
             audios = audios.to(device)
+            # print(captions)
 
             audio_embeds, caption_embeds = model(audios, captions)
 
@@ -194,22 +194,46 @@ def validate(data_loader, model, device, use_ot=False):
 
             audio_embs[indexs] = audio_embeds.cpu().numpy()
             cap_embs[indexs] = caption_embeds.cpu().numpy()
-        # # evaluate audio to text retrieval
-        # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, use_ot=use_ot)
 
         # evaluate text to audio retrieval
-        r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, use_ot=use_ot)
+        r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, False,use_ot, use_cosine)
+        # r1, r5, r10, r50, medr, meanr = t2a_ot_full(audio_embs, cap_embs, use_ot)
+        # r1, r5, r10, r50, medr, meanr = t2a_ot_sampling(audio_embs, cap_embs, use_ot)
+        t2a_metrics['r1'] += r1
+        t2a_metrics['r5'] += r5
+        t2a_metrics['r10'] += r10
+        t2a_metrics['median'] += medr
+        t2a_metrics['mean'] += meanr
 
-        val_logger.info('Caption to audio: r1: {:.2f}, r5: {:.2f}, '
-                        'r10: {:.2f}, r50: {:.2f}, medr: {:.2f}, meanr: {:.2f}'.format(
-                         r1, r5, r10, r50, medr, meanr))
+        # val_logger.info('Caption to audio: r1: {:.2f}, r5: {:.2f}, '
+        #                 'r10: {:.2f}, r50: {:.2f}, medr: {:.2f}, meanr: {:.2f}'.format(
+        #                  r1, r5, r10, r50, medr, meanr))
 
-        # # evaluate audio to text retrieval
-        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, use_ot=use_ot)
+        # evaluate audio to text retrieval
+        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, False,use_ot, use_cosine)
+        # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t_ot_full2(audio_embs, cap_embs, use_ot)
+        a2t_metrics['r1'] += r1_a
+        a2t_metrics['r5'] += r5_a
+        a2t_metrics['r10'] += r10_a
+        a2t_metrics['median'] += medr_a
+        a2t_metrics['mean'] += meanr_a
 
-        val_logger.info('Audio to caption: r1: {:.2f}, r5: {:.2f}, '
-                        'r10: {:.2f}, r50: {:.2f}, medr: {:.2f}, meanr: {:.2f}'.format(
-                         r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a))
-
+        # val_logger.info('Audio to caption: r1: {:.2f}, r5: {:.2f}, '
+        #                 'r10: {:.2f}, medr: {:.2f}, meanr: {:.2f}'.format(
+        #                 a2t_metrics['r1']/len(data_loader), a2t_metrics['r5']/len(data_loader), a2t_metrics['r10']/len(data_loader), a2t_metrics['median']/len(data_loader), a2t_metrics['mean']/len(data_loader)))
+        val_logger.info('Audio to caption: r1: {:.4f}, r5: {:.4f}, '
+                        'r10: {:.4f}, medr: {:.4f}, meanr: {:.4f}'.format(
+                        a2t_metrics['r1'], a2t_metrics['r5'], a2t_metrics['r10'], a2t_metrics['median'], a2t_metrics['mean']))
+        # print(t2a_metrics['r1']/len(data_loader))
+        # print(t2a_metrics['r5']/len(data_loader))
+        # print(t2a_metrics['r10']/len(data_loader))
+        # print(t2a_metrics['mean']/len(data_loader))
+        # print(t2a_metrics['median']/len(data_loader))
+        # val_logger.info('Caption to audio: r1: {:.2f}, r5: {:.2f}, '
+        #                 'r10: {:.2f}, medr: {:.2f}, meanr: {:.2f}'.format(
+        #                  t2a_metrics['r1']/len(data_loader), t2a_metrics['r5']/len(data_loader), t2a_metrics['r10']/len(data_loader), t2a_metrics['median']/len(data_loader), t2a_metrics['mean']/len(data_loader)))
+        val_logger.info('Caption to audio: r1: {:.4f}, r5: {:.4f}, '
+                        'r10: {:.4f}, medr: {:.4f}, meanr: {:.4f}'.format(
+                         t2a_metrics['r1'], t2a_metrics['r5'], t2a_metrics['r10'], t2a_metrics['median'], t2a_metrics['mean']))
         return r1, r5, r10, r50, medr, meanr
 

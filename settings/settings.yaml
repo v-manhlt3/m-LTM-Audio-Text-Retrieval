@@ -20,23 +20,27 @@ cnn_encoder:
   freeze: Yes
 
 data:
-  batch_size: 64
+  batch_size: 256
   num_workers: 8
 
 training:
+  epsilon: 0.03
+  m: 0.95
   margin: 0.2
-  freeze: Yes
-  loss: contrastive  # 'triplet', 'weight', 'ntxent'
+  freeze: No
+  loss:  pot # 'triplet', 'weight', 'contrastive', 'pot', 'ntxent'
+  use_ot: True
   spec_augmentation: Yes
-  epochs: 50
-  lr: !!float 1e-4
+  epochs: 35
+  lr: !!float 5e-5
   clip_grad: 2
-  seed: 20
+  seed: 1997
   resume: No
   l2_norm: Yes
   dropout: 0.2
+  use_cosine: True
 
 path:
   vocabulary: 'data/{}/pickles/words_list.p'
   word2vec: 'pretrained_models/w2v_all_vocabulary.model'
-  resume_model: ''
+  resume_model: 'outputs/Fourth-OT-ResNet-b256_data_AudioCaps_eps0.03_m0.98_lr_0.0001_/models/best_model.pth'
