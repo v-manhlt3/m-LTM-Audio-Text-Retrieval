@@ -14,7 +14,7 @@ from loguru import logger
 from pprint import PrettyPrinter
 from torch.utils.tensorboard import SummaryWriter
 from tools.utils import setup_seed, AverageMeter, a2t_ot, t2a_ot, \
-                            a2t_ot_full2, t2a_ot_full, t2a_ot_sampling, t2a, a2t
+                            a2t_ot_full2, t2a_ot_full, t2a, a2t
 from tools.loss import BiDirectionalRankingLoss, TripletLoss, NTXent, WeightTriplet, POTLoss
 from models.ASE_model import ASE
 from data_handling.DataLoader import get_dataloader
@@ -101,62 +101,62 @@ def train(config):
     # test validation
     # validate(test_loader, model, device,config.training.use_ot, config.training.use_cosine)
 
-    for epoch in range(ep, config.training.epochs + 1):
-        main_logger.info(f'Training for epoch [{epoch}]')
+    # for epoch in range(ep, config.training.epochs + 1):
+    #     main_logger.info(f'Training for epoch [{epoch}]')
 
-        epoch_loss = AverageMeter()
-        start_time = time.time()
-        model.train()
+    #     epoch_loss = AverageMeter()
+    #     start_time = time.time()
+    #     model.train()
 
-        for batch_id, batch_data in tqdm(enumerate(train_loader), total=len(train_loader)):
+    #     for batch_id, batch_data in tqdm(enumerate(train_loader), total=len(train_loader)):
 
-            audios, captions, audio_ids, _ = batch_data
+    #         audios, captions, audio_ids, _ = batch_data
 
-            # move data to GPU
-            audios = audios.to(device)
-            audio_ids = audio_ids.to(device)
+    #         # move data to GPU
+    #         audios = audios.to(device)
+    #         audio_ids = audio_ids.to(device)
 
-            audio_embeds, caption_embeds = model(audios, captions)
+    #         audio_embeds, caption_embeds = model(audios, captions)
 
-            loss = criterion(audio_embeds, caption_embeds, audio_ids)
+    #         loss = criterion(audio_embeds, caption_embeds, audio_ids)
 
-            optimizer.zero_grad()
+    #         optimizer.zero_grad()
 
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.clip_grad)
-            optimizer.step()
+    #         loss.backward()
+    #         torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.clip_grad)
+    #         optimizer.step()
 
-            epoch_loss.update(loss.cpu().item())
-        writer.add_scalar('train/loss', epoch_loss.avg, epoch)
+    #         epoch_loss.update(loss.cpu().item())
+    #     writer.add_scalar('train/loss', epoch_loss.avg, epoch)
 
-        elapsed_time = time.time() - start_time
+    #     elapsed_time = time.time() - start_time
 
-        main_logger.info(f'Training statistics:\tloss for epoch [{epoch}]: {epoch_loss.avg:.3f},'
-                         f'\ttime: {elapsed_time:.1f}, lr: {scheduler.get_last_lr()[0]:.6f}.')
+    #     main_logger.info(f'Training statistics:\tloss for epoch [{epoch}]: {epoch_loss.avg:.3f},'
+    #                      f'\ttime: {elapsed_time:.1f}, lr: {scheduler.get_last_lr()[0]:.6f}.')
 
-        # validation loop, validation after each epoch
-        main_logger.info("Validating...")
-        r1, r5, r10, r50, medr, meanr = validate(val_loader, model, device, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
-        r_sum = r1 + r5 + r10
-        recall_sum.append(r_sum)
+    #     # validation loop, validation after each epoch
+    #     main_logger.info("Validating...")
+    #     r1, r5, r10, r50, medr, meanr = validate(val_loader, model, device, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
+    #     r_sum = r1 + r5 + r10
+    #     recall_sum.append(r_sum)
 
-        writer.add_scalar('val/r@1', r1, epoch)
-        writer.add_scalar('val/r@5', r5, epoch)
-        writer.add_scalar('val/r@10', r10, epoch)
-        writer.add_scalar('val/r@50', r50, epoch)
-        writer.add_scalar('val/med@r', medr, epoch)
-        writer.add_scalar('val/mean@r', meanr, epoch)
+    #     writer.add_scalar('val/r@1', r1, epoch)
+    #     writer.add_scalar('val/r@5', r5, epoch)
+    #     writer.add_scalar('val/r@10', r10, epoch)
+    #     writer.add_scalar('val/r@50', r50, epoch)
+    #     writer.add_scalar('val/med@r', medr, epoch)
+    #     writer.add_scalar('val/mean@r', meanr, epoch)
 
-        # save model
-        if r_sum >= max(recall_sum):
-            main_logger.info('Model saved.')
-            torch.save({
-                'model': model.state_dict(),
-                'optimizer': model.state_dict(),
-                'epoch': epoch,
-            }, str(model_output_dir) + '/best_model.pth')
+    #     # save model
+    #     if r_sum >= max(recall_sum):
+    #         main_logger.info('Model saved.')
+    #         torch.save({
+    #             'model': model.state_dict(),
+    #             'optimizer': model.state_dict(),
+    #             'epoch': epoch,
+    #         }, str(model_output_dir) + '/best_model.pth')
 
-        scheduler.step()
+    #     scheduler.step()
 
     # Training done, evaluate on evaluation set
     main_logger.info('Training done. Start evaluating.')
@@ -196,9 +196,8 @@ def validate(data_loader, model, device, use_ot=False, use_cosine=True):
             cap_embs[indexs] = caption_embeds.cpu().numpy()
 
         # evaluate text to audio retrieval
-        r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, False,use_ot, use_cosine)
-        # r1, r5, r10, r50, medr, meanr = t2a_ot_full(audio_embs, cap_embs, use_ot)
-        # r1, r5, r10, r50, medr, meanr = t2a_ot_sampling(audio_embs, cap_embs, use_ot)
+        # r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, False,use_ot, use_cosine)
+        r1, r5, r10, r50, medr, meanr = t2a_ot(audio_embs, cap_embs, use_ot)
         t2a_metrics['r1'] += r1
         t2a_metrics['r5'] += r5
         t2a_metrics['r10'] += r10
@@ -210,8 +209,8 @@ def validate(data_loader, model, device, use_ot=False, use_cosine=True):
         #                  r1, r5, r10, r50, medr, meanr))
 
         # evaluate audio to text retrieval
-        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, False,use_ot, use_cosine)
-        # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t_ot_full2(audio_embs, cap_embs, use_ot)
+        # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, False,use_ot, use_cosine)
+        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t_ot(audio_embs, cap_embs, use_ot)
         a2t_metrics['r1'] += r1_a
         a2t_metrics['r5'] += r5_a
         a2t_metrics['r10'] += r10_a

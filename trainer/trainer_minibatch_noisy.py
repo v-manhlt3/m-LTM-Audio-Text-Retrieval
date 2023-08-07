@@ -13,11 +13,11 @@ from pathlib import Path
 from loguru import logger
 from pprint import PrettyPrinter
 from torch.utils.tensorboard import SummaryWriter
-from tools.utils import setup_seed, AverageMeter, a2t_ot, t2a_ot, \
-                            a2t_ot_full2, t2a_ot_full, t2a_ot_sampling, t2a, a2t
-from tools.loss import BiDirectionalRankingLoss, TripletLoss, NTXent, WeightTriplet, POTLoss
+from tools.utils import setup_seed, AverageMeter, a2t_ot, t2a_ot, t2a, a2t
+from tools.loss import BiDirectionalRankingLoss, TripletLoss, NTXent, WeightTriplet, \
+                        POTLoss, WassersteinLoss, DebiasedSinkhorn
 from models.ASE_model import ASE
-from data_handling.DataLoader import get_dataloader
+from data_handling.DataLoader import get_dataloader2
 
 
 def train(config):
@@ -34,8 +34,8 @@ def train(config):
                                              config.training.m,
                                              config.training.lr)
 
-    log_output_dir = Path('tuning-output', folder_name, 'logging')
-    model_output_dir = Path('tuning-output', folder_name, 'models')
+    log_output_dir = Path('noisy-output', folder_name, 'logging')
+    model_output_dir = Path('noisy-output', folder_name, 'models')
     log_output_dir.mkdir(parents=True, exist_ok=True)
     model_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -76,13 +76,17 @@ def train(config):
         criterion = WeightTriplet(margin=config.training.margin)
     elif config.training.loss == 'pot':
         criterion = POTLoss(epsilon=config.training.epsilon, m=config.training.m, use_cosine=config.training.use_cosine)
+    elif config.training.loss == 'wloss':
+        criterion = WassersteinLoss(epsilon=config.training.epsilon, use_cosine=config.training.use_cosine, reg=config.training.reg)
+    elif config.training.loss == 'd-sinkhorn':
+        criterion = DebiasedSinkhorn(epsilon=config.training.epsilon)
     else:
         criterion = BiDirectionalRankingLoss(margin=config.training.margin)
 
     # set up data loaders
-    train_loader = get_dataloader('train', config)
-    val_loader = get_dataloader('val', config)
-    test_loader = get_dataloader('test', config)
+    train_loader = get_dataloader2('train', config)
+    val_loader = get_dataloader2('val', config)
+    test_loader = get_dataloader2('test', config)
 
     main_logger.info(f'Size of training set: {len(train_loader.dataset)}, size of batches: {len(train_loader)}')
     main_logger.info(f'Size of validation set: {len(val_loader.dataset)}, size of batches: {len(val_loader)}')
@@ -94,15 +98,13 @@ def train(config):
     if config.training.resume:
         checkpoint = torch.load(config.path.resume_model)
         model.load_state_dict(checkpoint['model'])
-        # optimizer.load_state_dict(checkpoint['optimizer'])
         ep = checkpoint['epoch']
 
     # training loop
     recall_sum_a2t = []
     recall_sum_t2a = []
-    # test validation
-    # validate(test_loader, model, device,config.training.use_ot, config.training.use_cosine)
-
+    num_test_samples = 958
+    # validate_train_data(train_loader, model, device, writer, 0, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
     for epoch in range(ep, config.training.epochs + 1):
         main_logger.info(f'Training for epoch [{epoch}]')
 
@@ -110,10 +112,13 @@ def train(config):
         start_time = time.time()
         model.train()
 
+
         for batch_id, batch_data in tqdm(enumerate(train_loader), total=len(train_loader)):
 
             audios, captions, audio_ids, _ = batch_data
-            print(captions)
+            # if count_train_data < max_count_train_data:
+            #     train_valid.append(batch_data)
+            # print(captions)
 
             # move data to GPU
             audios = audios.to(device)
@@ -139,17 +144,14 @@ def train(config):
 
         # validation loop, validation after each epoch
         main_logger.info("Validating...")
-        r_sum_a2t, r_sum_t2a = validate(val_loader, model, device, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
+        r_sum_a2t, r_sum_t2a = validate(val_loader, model, device, writer, epoch, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
+        r1_t2a, r1_a2t = validate_train_data(train_loader, model, device, epoch, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
         # r_sum = r1 + r5 + r10
+        writer.add_scalar('train/r1_a2t', r1_a2t, epoch)
+        writer.add_scalar('train/r1_t2a', r1_t2a, epoch)
+
         recall_sum_a2t.append(r_sum_a2t)
         recall_sum_t2a.append(r_sum_t2a)
-
-        # writer.add_scalar('val/r@1', r1, epoch)
-        # writer.add_scalar('val/r@5', r5, epoch)
-        # writer.add_scalar('val/r@10', r10, epoch)
-        # writer.add_scalar('val/r@50', r50, epoch)
-        # writer.add_scalar('val/med@r', medr, epoch)
-        # writer.add_scalar('val/mean@r', meanr, epoch)
 
         # save model
         if r_sum_a2t >= max(recall_sum_a2t):
@@ -187,8 +189,7 @@ def train(config):
     writer.close()
 
 
-def validate(data_loader, model, device, use_ot=False, use_cosine=True):
-
+def validate(data_loader, model, device, writer, epoch, use_ot=False, use_cosine=True):
     val_logger = logger.bind(indent=1)
     model.eval()
     t2a_metrics = {"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
@@ -211,23 +212,27 @@ def validate(data_loader, model, device, use_ot=False, use_cosine=True):
             cap_embs[indexs] = caption_embeds.cpu().numpy()
 
         # evaluate text to audio retrieval
-        r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, False,use_ot, use_cosine)
+        # r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, False,use_ot, use_cosine)
+        r1, r5, r10, r50, medr, meanr, crossentropy_t2a  = t2a_ot(audio_embs, cap_embs, use_ot, use_cosine)
         r_sum_t2a = r1 +r5 + r10
         t2a_metrics['r1'] += r1
         t2a_metrics['r5'] += r5
         t2a_metrics['r10'] += r10
         t2a_metrics['median'] += medr
         t2a_metrics['mean'] += meanr
+        writer.add_scalar("valid/r1_t2a", r1, epoch)
 
         # evaluate audio to text retrieval
-        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, False,use_ot, use_cosine)
+        # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, False,use_ot, use_cosine)
+        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a, crossentropy_a2t = a2t_ot(audio_embs, cap_embs, use_ot, use_cosine)
         r_sum_a2t = r1_a + r5_a + r10_a
-        # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t_ot_full2(audio_embs, cap_embs, use_ot)
+
         a2t_metrics['r1'] += r1_a
         a2t_metrics['r5'] += r5_a
         a2t_metrics['r10'] += r10_a
         a2t_metrics['median'] += medr_a
         a2t_metrics['mean'] += meanr_a
+        writer.add_scalar("valid/r1_at2", r1_a, epoch)
 
  
         val_logger.info('Audio to caption: r1: {:.4f}, r5: {:.4f}, '
@@ -238,6 +243,59 @@ def validate(data_loader, model, device, use_ot=False, use_cosine=True):
                         'r10: {:.4f}, medr: {:.4f}, meanr: {:.4f}'.format(
                          t2a_metrics['r1'], t2a_metrics['r5'], t2a_metrics['r10'], t2a_metrics['median'], t2a_metrics['mean']))
         return r_sum_a2t, r_sum_t2a
+
+def validate_train_data(data_loader, model, device, epoch, use_ot=False, use_cosine=True):
+    val_logger = logger.bind(indent=1)
+    model.eval()
+    t2a_metrics = {"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
+    a2t_metrics = {"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
+
+    max_count_train_data = 4
+    train_valid = []
+    with torch.no_grad():
+        # numpy array to keep all embeddings in the dataset
+        audio_embs, cap_embs = None, None
+        audio_list = []
+        cap_list = []
+        for i, batch_data in tqdm(enumerate(data_loader), total=len(data_loader)):
+            if i>max_count_train_data:
+                break
+            audios, captions, audio_ids, indexs = batch_data
+            audios = audios.to(device)
+            audio_embeds, caption_embeds = model(audios, captions)
+            audio_list.append(audio_embeds)
+            cap_list.append(caption_embeds)
+
+            
+            # if audio_embs is None:
+            #     audio_embs = np.zeros((256*4, audio_embeds.size(1)))
+            #     cap_embs = np.zeros((256*4, caption_embeds.size(1)))
+
+            # audio_embs[indexs] = audio_embeds.cpu().numpy()
+            # cap_embs[indexs] = caption_embeds.cpu().numpy()
+        audio_list = torch.vstack(audio_list)
+        cap_list = torch.vstack(cap_list)
+        # evaluate text to audio retrieval
+        r1, r5, r10, r50, medr, meanr, crossentropy_t2a  = t2a_ot(audio_list.cpu().numpy(), cap_list.cpu().numpy(), use_ot, use_cosine, train_data=True)
+        r_sum_t2a = r1 +r5 + r10
+        t2a_metrics['r1'] += r1
+        t2a_metrics['r5'] += r5
+        t2a_metrics['r10'] += r10
+        t2a_metrics['median'] += medr
+        t2a_metrics['mean'] += meanr
+        # writer.add_scalar("train/train_validation_t2a", r1, epoch)
+
+        # evaluate audio to text retrieval
+        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a, crossentropy_a2t = a2t_ot(audio_list.cpu ().numpy(), cap_list.cpu().numpy(), use_ot, use_cosine, train_data=True)
+        r_sum_a2t = r1_a + r5_a + r10_a
+
+        a2t_metrics['r1'] += r1_a
+        a2t_metrics['r5'] += r5_a
+        a2t_metrics['r10'] += r10_a
+        a2t_metrics['median'] += medr_a
+        a2t_metrics['mean'] += meanr_a
+        # writer.add_scalar("train/train_validation_a2t", r1_a, epoch)
+        return r1, r1_a
 
 def validate_a2t(data_loader, model, device, use_ot, use_cosine):
     val_logger = logger.bind(indent=1)
@@ -263,10 +321,9 @@ def validate_a2t(data_loader, model, device, use_ot, use_cosine):
             audio_embs[indexs] = audio_embeds.cpu().numpy()
             cap_embs[indexs] = caption_embeds.cpu().numpy()
 
-
-
         # evaluate audio to text retrieval
-        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, False,use_ot, use_cosine)
+        # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, False,use_ot, use_cosine)
+        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a,_ = a2t_ot(audio_embs, cap_embs,use_ot, use_cosine)
         a2t_metrics['r1'] += r1_a
         a2t_metrics['r5'] += r5_a
         a2t_metrics['r10'] += r10_a
@@ -303,7 +360,8 @@ def validate_t2a(data_loader, model, device, use_ot, use_cosine):
             cap_embs[indexs] = caption_embeds.cpu().numpy()
 
         # evaluate text to audio retrieval
-        r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, False,use_ot, use_cosine)
+        # r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, False,use_ot, use_cosine)
+        r1, r5, r10, r50, medr, meanr,_ = t2a_ot(audio_embs, cap_embs,use_ot, use_cosine)
         t2a_metrics['r1'] += r1
         t2a_metrics['r5'] += r5
         t2a_metrics['r10'] += r10

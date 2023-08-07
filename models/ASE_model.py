@@ -95,14 +95,21 @@ class ASE(nn.Module):
         return self.text_enc(captions)
 
     def forward(self, audios, captions):
+        if audios == None:
+            audio_encoded = None
+            audio_embed = None
+        else:
+            audio_encoded = self.encode_audio(audios)     # batch x channel
+            audio_embed = self.audio_linear(audio_encoded)
+        
+        if captions == None:
+            caption_encoded = None
+            caption_embed = None
+        else:
+            caption_encoded = self.encode_text(captions)
+            caption_embed = self.text_linear(caption_encoded)
 
-        audio_encoded = self.encode_audio(audios)     # batch x channel
-        caption_encoded = self.encode_text(captions)
-
-        audio_embed = self.audio_linear(audio_encoded)
-
-        caption_embed = self.text_linear(caption_encoded)
-
+        # audio_embed = self.audio_linear(audio_encoded)
         if self.l2:
             # apply l2-norm on the embeddings
             audio_embed = l2norm(audio_embed)

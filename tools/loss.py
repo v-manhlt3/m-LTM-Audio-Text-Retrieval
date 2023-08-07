@@ -95,10 +95,11 @@ class BiDirectionalRankingLoss(nn.Module):
 
 class NTXent(nn.Module):
 
-    def __init__(self, temperature=0.07):
+    def __init__(self, temperature=0.07, noise_p=0.1):
         super(NTXent, self).__init__()
         self.loss = nn.LogSoftmax(dim=1)
         self.tau = temperature
+        self.noise_p = noise_p
 
     def forward(self, audio_embeds, text_embeds, labels):
 
@@ -116,6 +117,7 @@ class NTXent(nn.Module):
         t2a_loss = - self.loss(t2a).masked_fill(mask, 0).diag().mean()
 
         loss = 0.5 * a2t_loss + 0.5 * t2a_loss
+        # print("Loss: ", loss)
 
         return loss
 
@@ -227,3 +229,85 @@ class POTLoss(nn.Module):
 
         pi = ot.partial.entropic_partial_wasserstein(a, b, M_dist, reg=self.epsilon, m=self.m,numItermax=100)
         return pi
+
+class DebiasedSinkhorn(nn.Module):
+    def __init__(self, epsilon=0.05):
+        super(DebiasedSinkhorn, self).__init__()
+        self.epsilon = epsilon
+
+    def forward(self, audio_emb, text_emb, labels):
+        batch_size = audio_emb.size(0)
+        a = torch.ones(batch_size)/batch_size
+        b = torch.ones(batch_size)/batch_size
+        a = a.to(audio_emb.device)
+        b = b.to(audio_emb.device)
+        # print("labels: ", labels)
+        true_label = torch.arange(batch_size).to(torch.int64).to(audio_emb.device)
+
+
+        M_dist = util.cos_sim(audio_emb, text_emb) 
+        M_dist = 1 - M_dist
+
+        M_dist = M_dist /M_dist.max()
+        pi = ot.sinkhorn(a,b,M_dist, reg=self.epsilon, numItermax=10)
+        loss = F.cross_entropy(pi, true_label)
+
+        # print("shape of audio emb: ", audio_emb.shape)
+        # self-regularization for audio emb loss
+        # M_dist_audio = util.cos_sim(audio_emb, audio_emb)
+        # M_dist_audio = 1 - M_dist_audio
+        # M_dist_audio = M_dist_audio / M_dist_audio.max()
+        perm_audio_emb = audio_emb.clone().detach()
+        perm_audio_emb = audio_emb[torch.randperm(batch_size)]
+        M_dist_audio = ot.dist(audio_emb, perm_audio_emb)
+        M_dist_audio = M_dist_audio / M_dist_audio.max()
+        # audio_dist = ot.sinkhorn2(a, b, M_dist_audio, reg=0.1)
+        audio_dist = ot.emd2(a, b, M_dist_audio)
+
+        # self-regularization for caption emb loss
+        # M_dist_cap = util.cos_sim(text_emb, text_emb)
+        # M_dist_cap = 1 - M_dist_cap
+
+        perm_cap_emb = text_emb.clone().detach()
+        perm_cap_emb = text_emb[torch.randperm(batch_size)]
+        M_dist_cap = ot.dist(text_emb, perm_cap_emb)
+        M_dist_cap = M_dist_cap / M_dist_cap.max()
+        cap_dist = ot.emd2(a,b,M_dist_cap)
+        # cap_dist = ot.sinkhorn2(a, b, M_dist_cap, reg=0.1)
+
+        final_loss = loss + 0.1*(audio_dist + cap_dist)
+        # print(M_dist_audio[0])
+        print("audio dist: {}------ cap dist: {}".format(audio_dist, cap_dist))
+        return final_loss
+
+class WassersteinLoss(nn.Module):
+
+    def __init__(self, epsilon=0.05, use_cosine=True, reg=0.1):
+        super(WassersteinLoss, self).__init__()
+        self.epsilon = epsilon
+        self.use_cosine = use_cosine
+        self.kl_loss = nn.KLDivLoss()
+        self.reg = reg
+        # self.metric = metric
+    
+    def forward(self, audio_emb, text_emb, labels):
+        batch_size = audio_emb.size(0)
+        a = torch.ones(batch_size)/batch_size
+        b = torch.ones(batch_size)/batch_size
+        a = a.to(audio_emb.device)
+        b = b.to(audio_emb.device)
+        # print("labels: ", labels)
+        true_label = torch.arange(batch_size).to(torch.int64).to(audio_emb.device)
+
+        if self.use_cosine:
+            M_dist = util.cos_sim(audio_emb, text_emb) 
+            M_dist = 1 - M_dist
+        else:
+            M_dist = ot.dist(audio_emb, text_emb)
+        M_dist = M_dist /M_dist.max()
+        pi = ot.sinkhorn(a,b,M_dist, reg=self.epsilon, numItermax=10)
+        # mu_hat = torch.ones(batch_size)
+
+        loss = F.cross_entropy(pi, true_label) + self.reg*(self.kl_loss(a, torch.sum(pi, 0)) + self.kl_loss(b, torch.sum(pi, 1)))
+        print("loss: ", loss)
+        return loss

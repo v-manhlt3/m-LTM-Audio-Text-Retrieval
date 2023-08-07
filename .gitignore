@@ -1,5 +1,7 @@
 outputs/*
 tuning-output/*
+tuning-output-old/*
+noisy-output/*
 logs/*
 pretrained_models/*
 data/*

@@ -24,23 +24,28 @@ data:
   num_workers: 8
 
 training:
-  epsilon: 0.03
+  epsilon: 0.05
   m: 0.95
   margin: 0.2
   freeze: No
-  loss:  pot # 'triplet', 'weight', 'contrastive', 'pot', 'ntxent'
+  loss:  d-sinkhorn # 'triplet', 'weight', 'contrastive', 'pot', 'ntxent', 'wloss', 'd-sinkhorn'
   use_ot: True
+  reg: 0.15
   spec_augmentation: Yes
-  epochs: 35
-  lr: !!float 5e-5
+  epochs: 30
+  lr: !!float 1e-4
   clip_grad: 2
   seed: 1997
   resume: No
   l2_norm: Yes
   dropout: 0.2
   use_cosine: True
+  noise_p: 0
 
 path:
   vocabulary: 'data/{}/pickles/words_list.p'
   word2vec: 'pretrained_models/w2v_all_vocabulary.model'
-  resume_model: 'outputs/Fourth-OT-ResNet-b256_data_AudioCaps_eps0.03_m0.98_lr_0.0001_/models/best_model.pth'
+  resume_model: "noisy-output/R1-0.1-DebiasSinkhorn-overfitting-exp_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
+  # resume_model: "tuning-output/Clotho-POT_data_Clotho_noise0.0_eps0.03_m0.95_lr_5e-05_/models"
+  # resume_model: 'tuning-output/LR-b256-Cosine-OT_data_AudioCaps_eps0.03_m0.95_lr_5e-05_/models'
+  # resume_model: 'tuning-output/AudioCaps-NTXent_data_AudioCaps_eps0.03_m0.95_lr_0.0001_/models/best_model.pth'

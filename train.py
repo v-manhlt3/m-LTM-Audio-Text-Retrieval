@@ -7,8 +7,9 @@
 import os
 import argparse
 import torch
-# from trainer.trainer import train
-from trainer.trainer_minibatch2 import train
+# from trainer.trainer_OT import train
+# from trainer.trainer_minibatch import train
+from trainer.trainer_minibatch_noisy import train
 from tools.config_loader import get_config
 
 
@@ -44,11 +45,4 @@ if __name__ == '__main__':
     config = get_config(args.config)
 
     config.exp_name = args.exp_name
-    # config.dataset = args.dataset
-    # config.training.lr = args.lr
-    # config.training.loss = args.loss
-    # config.training.freeze = eval(args.freeze)
-    # config.data.batch_size = args.batch
-    # config.training.margin = args.margin
-    # config.training.seed = args.seed
     train(config)

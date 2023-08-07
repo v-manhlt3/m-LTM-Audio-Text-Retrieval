@@ -29,6 +29,13 @@ def setup_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+def get_preds(sorting):
+    preds = torch.zeros((sorting.size(0), 5))
+    for i in range(sorting.size(0)):
+        # print(sorting[i, i:i+5])
+        # print("*"*40)
+        preds[i,:] = sorting[i, i:i+5]
+    return preds
 
 class AverageMeter(object):
     """
@@ -85,9 +92,6 @@ def a2t(audio_embs, cap_embs, return_ranks=False, use_ot=False, use_cosine=True)
     for index in tqdm(range(num_audios)):
         # get query audio
         audio = audio_embs[5 * index].reshape(1, audio_embs.shape[1]) # size of [1, audio_emb]
-        # print("len audio: ", len(audio))
-        # print("len audio embes: ", len(audio_embs))
-        # compute scores
         if use_ot:
             batch_size = len(audio_embs)
             a = torch.ones(1)
@@ -110,6 +114,9 @@ def a2t(audio_embs, cap_embs, return_ranks=False, use_ot=False, use_cosine=True)
         else:
             d = util.cos_sim(torch.Tensor(audio), torch.Tensor(cap_embs)).squeeze(0).numpy() # size of [1, #captions]
         inds = np.argsort(d)[::-1] # sorting metric scores
+        # print(inds.shape)
+        # print(inds)
+        # print("*")
         index_list.append(inds[0])
 
         inds_map = []
@@ -208,340 +215,134 @@ def t2a(audio_embs, cap_embs, return_ranks=False, use_ot=False, use_cosine=True)
         return r1, r5, r10, r50, medr, meanr
 
 
-def a2t_ot(audio_embs, cap_embs, use_ot=False):
-    # num_audios = int(audio_embs.shape[0]/5)
-    # index_list = []
-    
-    # audio = [audio_embs[i] for i in range(0, len(audio_embs), 5)]
-    # audio = torch.stack(audio).to(torch.device("cuda"))
-    # cap_embs = torch.Tensor(cap_embs).to(torch.device("cuda"))
-    # audio_embs = torch.Tensor(audio_embs).to(torch.device("cuda"))
-
-    a = torch.ones(audio_embs.size(0))/audio_embs.size(0)
-    b = torch.ones(cap_embs.size(0))/cap_embs.size(0)
-    a = a.to(torch.device("cuda"))
-    b = b.to(torch.device("cuda"))
-
-    M_dist = ot.dist(audio_embs, cap_embs)
-    M_dist = M_dist/M_dist.max()
-    ground_truth = torch.arange(start=0, end=cap_embs.size(0)).view(-1,1).to(audio_embs.device)
-
-    if use_ot:
-        d = ot.partial.entropic_partial_wasserstein(a,b,M_dist, reg=0.04, m=0.94, numItermax=20)
+def a2t_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False):
+    if not train_data:
+        audio = [audio_embs[i] for i in range(0, len(audio_embs), 5)]
     else:
-        d = util.cos_sim(audio_embs, cap_embs)
-    sorting = torch.argsort(d, descending=True)
-    preds = torch.where(sorting==ground_truth)[1]
-    preds = preds.detach().cpu().numpy()
-    # print("sorting: ", sorting)
-    # print("preds: ", preds)
-    # print("ranking: ", ranking)
+        audio = audio_embs
 
-    medr = np.floor(np.median(preds)) + 1
-    meanr = preds.mean() + 1
-    r1 = np.mean(preds < 1)
-    r5 = np.mean(preds < 5)
-    r10 = np.mean(preds < 10)
-    r50 = np.mean(preds < 50)
-    return r1, r5, r10, r50, medr, meanr
+    rank_list = []
 
-def t2a_ot(audio_embs, cap_embs, use_ot=False, use_cosine=True):
-    # cap_embs = torch.Tensor(cap_embs).to(torch.device("cuda"))
-    # audio_embs = torch.Tensor(audio_embs).to(torch.device("cuda"))
-
-    a = torch.ones(cap_embs.size(0))/audio_embs.size(0)
-    b = torch.ones(audio_embs.size(0))/cap_embs.size(0)
-    a = a.to(torch.device("cuda"))
-    b = b.to(torch.device("cuda"))
-
+    a = torch.ones(len(audio))/len(audio)
+    b = torch.ones(len(cap_embs))/len(cap_embs)
+    # a = a.to(torch.device("cuda"))
+    # b = b.to(torch.device("cuda"))
     if use_cosine:
-        M_dist = util.cos_sim(audio_embs, cap_embs)
+        M_dist = util.cos_sim(torch.tensor(audio), torch.tensor(cap_embs)).cpu()
         M_dist = 1 - M_dist
     else:
-        M_dist = ot.dist(torch.Tensor(cap_embs).to(torch.device("cuda")), torch.Tensor(audio_embs).to(torch.device("cuda")))
+        M_dist = ot.dist(torch.tensor(audio), torch.tensor(cap_embs)).cpu()
     M_dist = M_dist/M_dist.max()
-    ground_truth = torch.arange(start=0, end=cap_embs.size(0)).view(-1,1).to(audio_embs.device)
 
-    if use_ot:  
-        d = ot.partial.entropic_partial_wasserstein(a,b,M_dist, reg=0.04, m=0.94, numItermax=20)
-        # d = ot.sinkhorn(a,b,M_dist, reg=0.04, numItermax=100)
-        print("using ot")
+    if use_ot:
+        # d = ot.partial.entropic_partial_wasserstein(a,b,M_dist, reg=0.04, m=0.94, numItermax=20)
+        d = ot.sinkhorn(a,b,M_dist, reg=0.05, numItermax=10).cpu().numpy()
     else:
-        d = util.cos_sim(cap_embs, audio_embs)
+        print("using cosine")
+        d = util.cos_sim(torch.tensor(audio).to(torch.device("cuda")), torch.tensor(cap_embs).to(torch.device("cuda")))
+        d = torch.exp(d)
+        d_norm = torch.sum(d)
+        d = d/d_norm
+        d = d.cpu().numpy()
 
-    sorting = torch.argsort(d, descending=True)
-    preds = torch.where(sorting==ground_truth)[1]
-    preds = preds.detach().cpu().numpy()
+    for index in range(len(audio)):
+        inds = np.argsort(d[index])[::-1] # sort an array by index
+        inds_map = []
+        rank = 1e20
+        if not train_data:
+            for i in range(5 * index, 5 * index + 5, 1):
+                tmp = np.where(inds == i)[0][0]
+                if tmp < rank:
+                    rank = tmp
+                if tmp < 10:
+                    inds_map.append(tmp + 1)
+            rank_list.append(rank)
+        else:
+            # for i in range(5 * index, 5 * index + 5, 1):
+            tmp = np.where(inds == index)[0][0]
+            if tmp < rank:
+                rank = tmp
+            if tmp < 10:
+                inds_map.append(tmp + 1)
+            rank_list.append(rank)
+    preds = np.array(rank_list)
 
     medr = np.floor(np.median(preds)) + 1
     meanr = preds.mean() + 1
-    r1 = np.mean(preds < 1)
-    r5 = np.mean(preds < 5)
-    r10 = np.mean(preds < 10)
-    r50 = np.mean(preds < 50)
-    return r1, r5, r10, r50, medr, meanr
+    r1 = np.mean(preds < 1)*100
+    r5 = np.mean(preds < 5)*100
+    r10 = np.mean(preds < 10)*100
+    r50 = np.mean(preds < 50)*100
+    # print("kl divergence Audio to caption: ", crossentropy_measure(d, True, use_cosine))
+    crossentropy = crossentropy_measure(d, True, use_ot)
+    return r1, r5, r10, r50, medr, meanr, crossentropy
 
-def a2t_ot_full2(audio_embs, cap_embs, use_ot=False, use_cosine=True):
-
-    num_audios = int(audio_embs.shape[0]/5)
-
-    audios = np.array([audio_embs[i] for i in range(0, audio_embs.shape[0], 5)]) # size of [#audio]
-    metric ={"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
-    final_preds = []
-# for ind in range(5):
-    # captions = np.array([cap_embs[i+ind] for i in range(0, audio_embs.shape[0], 5)]) # size of [#caps]
-    # audios = audios.reshape(num_audios, -1)
-    if use_ot:
-        a = torch.ones(num_audios)/num_audios
-        b = torch.ones(cap_embs.shape[0])/cap_embs.shape[0]
-        a = a.to(torch.device("cuda"))
-        b = b.to(torch.device("cuda"))
-
-        if use_cosine:
-            M_dist = util.cos_sim(audios, cap_embs)
-            M_dist = 1 - M_dist
-            M_dist = M_dist.to(torch.device("cuda"))
-        else:
-            M_dist = ot.dist(torch.Tensor(audios).to(torch.device("cuda")), torch.Tensor(cap_embs).to(torch.device("cuda")))
-        M_dist = M_dist/M_dist.max()
-
-        # d = ot.partial.entropic_partial_wasserstein(a, b, M_dist, reg=0.04, m=0.94,numItermax=100)
-        d = ot.sinkhorn(a,b,M_dist, reg=0.02, numItermax=200)
+def t2a_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False):
+    if not train_data:
+        audio = [audio_embs[i] for i in range(0, len(audio_embs), 5)]
     else:
-        d = util.cos_sim(torch.Tensor(audios), torch.Tensor(cap_embs)).to(torch.device("cuda"))
+        audio = audio_embs
+    rank_list = []
+    print(audio_embs.shape)
+    print(cap_embs.shape)
+    a = torch.ones(len(cap_embs))/len(cap_embs)
+    b = torch.ones(len(audio))/len(audio)
 
-    # d = filter(d)
-    sorting_d = torch.argsort(d, descending=True)
-    five_d = filter(sorting_d.cpu().numpy())
-    print("five_d shape: ", five_d.shape)
-    ranks = np.min(five_d, axis=-1)
-    print(ranks)
-    # ground_truth = torch.arange(start=0, end=num_audios).view(-1, 1).to(torch.device("cuda"))
-    # preds = torch.where(sorting_d==ground_truth)[1]
-    # preds = preds.detach().cpu().numpy()
-    r1 = 100.0 * len(np.where(ranks < 1)[0]) / len(ranks)
-    r5 = 100.0 * len(np.where(ranks < 5)[0]) / len(ranks)
-    r10 = 100.0 * len(np.where(ranks < 10)[0]) / len(ranks)
-    r50 = 100.0 * len(np.where(ranks < 50)[0]) / len(ranks)
-    # mAP10 = 100.0 * np.sum(mAP10) / len(ranks)
-    medr = np.floor(np.median(ranks)) + 1
-    meanr = ranks.mean() + 1
-    return r1, r5, r10, r50, meanr, medr
+    if use_cosine:
+        M_dist = util.cos_sim(torch.tensor(cap_embs), torch.tensor(audio))
+        M_dist = 1 - M_dist
+    else:
+        M_dist = ot.dist(torch.tensor(cap_embs), torch.tensor(audio))
+    M_dist = M_dist/M_dist.max()
 
-def a2t_ot_full(audio_embs, cap_embs, use_ot=False, use_cosine=False):
+    if use_ot:  
+        # d = ot.partial.entropic_partial_wasserstein(a,b,M_dist, reg=0.04, m=0.94, numItermax=20)
+        d = ot.sinkhorn(a,b,M_dist, reg=0.05, numItermax=100).cpu().numpy() #[#cap_embs, #audio]
+    else:
+        d = util.cos_sim(torch.tensor(cap_embs), torch.tensor(audio))
+        d = torch.exp(torch.tensor(d))
+        d_norm = torch.sum(d)
+        d = d/d_norm
+        d = d.cpu().numpy()
 
-    num_audios = int(audio_embs.shape[0]/5)
-
-    audios = np.array([audio_embs[i] for i in range(0, audio_embs.shape[0], 5)]) # size of [#audio]
-    metric ={"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
-    final_preds = []
-    for ind in range(5):
-        captions = np.array([cap_embs[i+ind] for i in range(0, audio_embs.shape[0], 5)]) # size of [#caps]
-        # audios = audios.reshape(num_audios, -1)
-        if use_ot:
-            a = torch.ones(num_audios)/num_audios
-            b = torch.ones(num_audios)/num_audios
-            a = a.to(torch.device("cuda"))
-            b = b.to(torch.device("cuda"))
-
-            if use_cosine:
-                M_dist = util.cos_sim(audios, captions)
-                M_dist = 1 - M_dist
-                M_dist = M_dist.to(torch.device("cuda"))
-            else:
-                M_dist = ot.dist(torch.Tensor(audios).to(torch.device("cuda")), torch.Tensor(captions).to(torch.device("cuda")))
-            M_dist = M_dist/M_dist.max()
-
-            # d = ot.partial.entropic_partial_wasserstein(a, b, M_dist, reg=0.04, m=0.94,numItermax=100)
-            d = ot.sinkhorn(a,b,M_dist, reg=0.02, numItermax=200)
+    for index in range(len(audio)):
+        if not train_data:
+            for i in range(5*index, 5*index+5, 1):
+                inds = np.argsort(d[i])[::-1]
+                rank = np.where(inds==index)[0][0]
+                rank_list.append(rank)
         else:
-            d = util.cos_sim(torch.Tensor(audios), torch.Tensor(captions)).to(torch.device("cuda"))
-
-        sorting_d = torch.argsort(d, descending=True)
-        ground_truth = torch.arange(start=0, end=num_audios).view(-1, 1).to(torch.device("cuda"))
-        preds = torch.where(sorting_d==ground_truth)[1]
-        preds = preds.detach().cpu().numpy()
-        medr = np.floor(np.median(preds)) + 1
-        meanr = preds.mean() + 1
-        r1 = np.mean(preds < 1)
-        r5 = np.mean(preds < 5)
-        r10 = np.mean(preds < 10)
-        r50 = np.mean(preds < 50)
-        print("R@1: {}|-- R@5: {}|-- R@10: {}".format(r1, r5,r10))
-        metric['r1'] += r1
-        metric['r5'] += r5
-        metric['r10'] += r10
-        metric['mean'] += meanr
-        metric['median'] += medr
-    return metric['r1']/5, metric['r5']/5, metric['r10']/5, r50, metric['mean']/5, metric['median']/5
-
-def t2a_ot_full(audio_embs, cap_embs, use_ot=False, use_cosine=False):
-
-    num_audios = int(audio_embs.shape[0]/5)
-
-    audios = np.array([audio_embs[i] for i in range(0, audio_embs.shape[0], 5)]) # size of [#audio]
-    metric ={"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
-    for ind in range(5):
-        captions = np.array([cap_embs[i+ind] for i in range(0, audio_embs.shape[0], 5)]) # size of [#caps]
-        # audios = audios.reshape(num_audios, -1)
-        if use_ot:
-            a = torch.ones(num_audios)/num_audios
-            b = torch.ones(num_audios)/num_audios
-            a = a.to(torch.device("cuda"))
-            b = b.to(torch.device("cuda"))
-
-            if use_cosine:
-                M_dist = util.cos_sim(audios, captions)
-                M_dist = 1 - M_dist
-                M_dist = M_dist.to(torch.device("cuda"))
-            else:
-                M_dist = ot.dist(torch.Tensor(audios).to(torch.device("cuda")), torch.Tensor(captions).to(torch.device("cuda")))
-            M_dist = M_dist/M_dist.max()
-            
-            # d = ot.partial.entropic_partial_wasserstein(a, b, M_dist, reg=0.04, m=0.94,numItermax=100)
-            d = ot.sinkhorn(a,b,M_dist, reg=0.04, numItermax=100)
-        else:
-            d = util.cos_sim(torch.Tensor(captions), torch.Tensor(audios)).to(torch.device("cuda"))
-        sorting_d = torch.argsort(d, descending=True)
-        ground_truth = torch.arange(start=0, end=num_audios).view(-1, 1).to(torch.device("cuda"))
-        preds = torch.where(sorting_d==ground_truth)[1]
-        preds = preds.detach().cpu().numpy()
-        medr = np.floor(np.median(preds)) + 1
-        meanr = preds.mean() + 1
-        r1 = np.mean(preds < 1)
-        r5 = np.mean(preds < 5)
-        r10 = np.mean(preds < 10)
-        r50 = np.mean(preds < 50)
-        metric['r1'] += r1
-        metric['r5'] += r5
-        metric['r10'] += r10
-        metric['mean'] += meanr
-        metric['median'] += medr
-    return metric['r1']/5, metric['r5']/5, metric['r10']/5, r50, metric['mean']/5, metric['median']/5
+            inds = np.argsort(d[index])[::-1]
+            rank = np.where(inds==index)[0][0]
+            rank_list.append(rank)
+        
+    preds = np.array(rank_list)
+    medr = np.floor(np.median(preds)) + 1
+    meanr = preds.mean() + 1
+    r1 = np.mean(preds < 1)*100
+    r5 = np.mean(preds < 5)*100
+    r10 = np.mean(preds < 10)*100
+    r50 = np.mean(preds < 50)*100
+    crossentropy = crossentropy_measure(d, False, use_ot)
+    return r1, r5, r10, r50, medr, meanr, crossentropy
 
 
-def t2a_ot_sampling(audio_embs, cap_embs,use_ot=True):
-    num_audios = int(audio_embs.shape[0]/5)
-    # audios = np.array()
-    audios = np.array([audio_embs[i] for i in range(0, audio_embs.shape[0], 5)]) # size of [#audio]
-    metric ={"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
-    mini_batch = 10
-    # audios = audios[:(audios.shape(0)//mini_batch)*mini_batch]
-    k = 10000
-    ind = 0
-    for ind in range(5):
-        print("loop number: ", ind)
-        captions = np.array([cap_embs[i+ind] for i in range(0, audio_embs.shape[0], 5)]) # size of [#caps]
-        d_k = []
-        # audios_sampling = audios.clone()
-        # captions_sampling = captions.clone()
-        d = torch.zeros(num_audios, num_audios).to(torch.device("cuda"))
-        for i in tqdm(range(k)):
-            
-            # audios_ind = torch.randperm(num_audios)[:mini_batch]
-            caps_ind = torch.randperm(num_audios)[:mini_batch]
-            # mini_audios = audios[audios_ind]
-            mini_caps = captions[caps_ind]
-            a = torch.ones(mini_batch)/mini_batch
-            b = torch.ones(num_audios)/num_audios
-            a = a.to(torch.device("cuda"))
-            b = b.to(torch.device("cuda"))
-
-            M_dist = ot.dist(torch.Tensor(mini_caps).to(torch.device("cuda")), torch.Tensor(audios).to(torch.device("cuda")))
-            M_dist = M_dist/M_dist.max()
-            
-            # mini_d = ot.sinkhorn(a,b,M_dist, reg=0.05, numItermax=10)
-            mini_d = ot.partial.entropic_partial_wasserstein(a, b, M_dist, reg=0.04, m=0.01, numItermax=100)
-            # print(a.device)
-            # print(M_dist.device)
-            # M_dist = M_dist.detach().cpu()
-            # mini_d = ot.partial.partial_wasserstein(a,b,M_dist, m=.95)
-            # print(mini_d.shape)
-            # mini_d = mini_d[:-1, :-1]
-
-            for m in range(mini_batch):
-                for n in  range(num_audios):
-                    d[caps_ind[m], n] += mini_d[m,n]
-            # d_k.append(d)
-        # app_d = sum(d_k)/k
-        d = d/k
-        # print("size of app_d: ", app_d.shape)
-        sorting_d = torch.argsort(d, descending=True)
-        ground_truth = torch.arange(start=0, end=num_audios).view(-1, 1).to(torch.device("cuda"))
-        preds = torch.where(sorting_d==ground_truth)[1]
-        preds = preds.detach().cpu().numpy()
-        medr = np.floor(np.median(preds)) + 1
-        meanr = preds.mean() + 1
-        r1 = np.mean(preds < 1)
-        r5 = np.mean(preds < 5)
-        r10 = np.mean(preds < 10)
-        r50 = np.mean(preds < 50)
-        print("R@1: {}--|R@5: {}--|R@10: {}".format(r1, r5, r10))
-        print("*"*70)
-        metric['r1'] += r1
-        metric['r5'] += r5
-        metric['r10'] += r10
-        metric['mean'] += meanr
-        metric['median'] += medr
-    return metric['r1']/5, metric['r5']/5, metric['r10']/5, r50, metric['mean']/5, metric['median']/5
-    # return metric['r1'], metric['r5'], metric['r10'], r50, metric['mean'], metric['median']
-
-def t2a_ot_sampling2(audio_embs, cap_embs,use_ot=True):
-    num_audios = int(audio_embs.shape[0]/5)
-    num_audios = 128*7
-    audios = np.array([audio_embs[i] for i in range(0, audio_embs.shape[0], 5)]) # size of [#audio]
-    metric ={"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
-    mini_batch = 512
-    mini_batch_t= 128
-    # audios = audios[:(audios.shape[0]//mini_batch)*mini_batch]
-    k = 10
-    ind = 0
-    for ind in range(5):
-        print("loop number: ", ind)
-        captions = np.array([cap_embs[i+ind] for i in range(0, audio_embs.shape[0], 5)]) # size of [#caps]
-        d = torch.zeros(num_audios, num_audios).to(torch.device("cuda"))
-        for mini_t in range(7):
-            for i in tqdm(range(k)):
-                audios_ind = torch.randperm(num_audios)[:mini_batch]
-                caps_ind = torch.randperm(num_audios)[:mini_batch]
-                mini_audios = audios[mini_t*mini_batch_t:mini_t*mini_batch_t+ mini_batch_t]
-                mini_caps = captions[caps_ind]
-                a = torch.ones(mini_batch)/mini_batch
-                b = torch.ones(mini_batch_t)/mini_batch_t
-                # a = a.to(torch.device("cuda"))
-                # b = b.to(torch.device("cuda"))
-
-                M_dist = ot.dist(torch.Tensor(mini_caps).to(torch.device("cuda")), torch.Tensor(mini_audios).to(torch.device("cuda")))
-                M_dist = M_dist/M_dist.max()
-                
-                M_dist = M_dist.detach().cpu()
-                mini_d = ot.partial.partial_wasserstein(a,b,M_dist, m=.95)
-
-                for m in range(mini_batch_t):
-                    for n in  range(mini_batch):
-                        print(m)
-                        print(audios_ind[n])
-                        print(audios_ind.size())
-                        print(mini_d.size())
-                        d[m+mini_t*mini_batch_t, audios_ind[n]] += mini_d[m,n]
-
-        d = d/k
-        # print("size of app_d: ", app_d.shape)
-        sorting_d = torch.argsort(d, descending=True)
-        ground_truth = torch.arange(start=0, end=num_audios).view(-1, 1).to(torch.device("cuda"))
-        preds = torch.where(sorting_d==ground_truth)[1]
-        preds = preds.detach().cpu().numpy()
-        medr = np.floor(np.median(preds)) + 1
-        meanr = preds.mean() + 1
-        r1 = np.mean(preds < 1)
-        r5 = np.mean(preds < 5)
-        r10 = np.mean(preds < 10)
-        r50 = np.mean(preds < 50)
-        print("R@1: {}--|R@5: {}--|R@10: {}".format(r1, r5, r10))
-        print("*"*70)
-        metric['r1'] += r1
-        metric['r5'] += r5
-        metric['r10'] += r10
-        metric['mean'] += meanr
-        metric['median'] += medr
-    return metric['r1']/5, metric['r5']/5, metric['r10']/5, r50, metric['mean']/5, metric['median']/5
+def crossentropy_measure(pi_star, audio2text=False, use_ot=False):
+    pi_star = torch.tensor(pi_star)
+    pi_hat = torch.zeros(pi_star.size()).to(pi_star.device)
+    
+    if audio2text:
+        # size of pi_star: [#audio, #caption=5*#audio]
+        for i in range(pi_hat.size(0)):
+            pi_hat[i, 5*i:5*i+5] = 1
+    else:
+        for i in range(pi_hat.size(1)):
+            pi_hat[5*i:5*i+5, i] = 1
+    pi_hat = pi_hat/(pi_star.size(0)*pi_star.size(1))
+    # pi_hat = torch.exp(pi_hat)
+    # pi_hat_norm = torch.sum(pi_hat)
+    # pi_hat = pi_hat / pi_hat_norm
+    kl = (-1)*torch.mul(pi_hat, torch.log(pi_star))
+    kl = torch.sum(kl)
+    # print(kl)
+    return kl
