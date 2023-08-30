@@ -16,6 +16,8 @@ from tools.file_io import load_pickle_file
 from gensim.models.word2vec import Word2Vec
 import ot
 from tqdm import tqdm
+import pylab as pl
+import seaborn as sns
 
 
 def setup_seed(seed):
@@ -29,13 +31,20 @@ def setup_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def get_preds(sorting):
-    preds = torch.zeros((sorting.size(0), 5))
-    for i in range(sorting.size(0)):
-        # print(sorting[i, i:i+5])
-        # print("*"*40)
-        preds[i,:] = sorting[i, i:i+5]
-    return preds
+def kernel_distance(x,y):
+    k_xx = torch.pow(x@x.t(), 2)
+    k_yy = torch.pow(y@y.t(), 2)
+    k_xy = 2*torch.pow(x@y.t(), 2)
+    sim = torch.exp(-0.5*(k_xx + k_yy - k_xy))
+    return sim
+
+def gaussian_dotprod_kernel(x, y):
+    dist = torch.zeros(x.size(0), y.size(0)).to(x.device)
+    for i in range(dist.size(0)):
+        for j in range(dist.size(1)):
+            dist[i,j] = kernel_distance(x[i], y[j])
+    return dist
+
 
 class AverageMeter(object):
     """
@@ -179,10 +188,9 @@ def t2a(audio_embs, cap_embs, return_ranks=False, use_ot=False, use_cosine=True)
                     M_dist = util.cos_sim(query, audios)
                     M_dist = 1 - M_dist
                 else:
-                    # print(torch.tensor(query).shape)
-                    # print(torch.tensor(audios).shape)
-                    # print("Evaluation**********************************************")
-                    M_dist = ot.dist(torch.tensor(query).unsqueeze(0).to(torch.device("cuda")), torch.tensor(audios).to(torch.device("cuda")))
+                    M_dist = ot.dist(torch.tensor(query).unsqueeze(0).to(torch.device("cuda")),\
+                                     torch.tensor(audios).to(torch.device("cuda")))
+
                 M_dist = M_dist /M_dist.max()
                 M_dist = torch.tensor(M_dist).to(torch.device("cuda"))
 
@@ -232,18 +240,25 @@ def a2t_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False)
         M_dist = 1 - M_dist
     else:
         M_dist = ot.dist(torch.tensor(audio), torch.tensor(cap_embs)).cpu()
+
+    # M_dist = torch.tensor(audio).unsqueeze(0).to(torch.device("cuda"))@torch.tensor(cap_embs).t().to(torch.device("cuda"))
+    # M_dist =  torch.nn.functional.softplus(M_dist)
+
     M_dist = M_dist/M_dist.max()
 
     if use_ot:
         # d = ot.partial.entropic_partial_wasserstein(a,b,M_dist, reg=0.04, m=0.94, numItermax=20)
-        d = ot.sinkhorn(a,b,M_dist, reg=0.05, numItermax=10).cpu().numpy()
+        d = ot.sinkhorn(a,b,M_dist, reg=0.05, numItermax=100).cpu().numpy()
     else:
         print("using cosine")
         d = util.cos_sim(torch.tensor(audio).to(torch.device("cuda")), torch.tensor(cap_embs).to(torch.device("cuda")))
-        d = torch.exp(d)
+        d = torch.exp(d/0.05)
         d_norm = torch.sum(d)
         d = d/d_norm
         d = d.cpu().numpy()
+
+    visual_plan(d)
+    visual_true_plan(d)
 
     for index in range(len(audio)):
         inds = np.argsort(d[index])[::-1] # sort an array by index
@@ -283,8 +298,8 @@ def t2a_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False)
     else:
         audio = audio_embs
     rank_list = []
-    print(audio_embs.shape)
-    print(cap_embs.shape)
+    # print(audio_embs.shape)
+    # print(cap_embs.shape)
     a = torch.ones(len(cap_embs))/len(cap_embs)
     b = torch.ones(len(audio))/len(audio)
 
@@ -293,6 +308,10 @@ def t2a_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False)
         M_dist = 1 - M_dist
     else:
         M_dist = ot.dist(torch.tensor(cap_embs), torch.tensor(audio))
+    
+    # M_dist = torch.tensor(cap_embs).unsqueeze(0).to(torch.device("cuda"))@torch.tensor(audio).t().to(torch.device("cuda"))
+    # M_dist =  torch.nn.functional.softplus(M_dist)
+
     M_dist = M_dist/M_dist.max()
 
     if use_ot:  
@@ -300,7 +319,7 @@ def t2a_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False)
         d = ot.sinkhorn(a,b,M_dist, reg=0.05, numItermax=100).cpu().numpy() #[#cap_embs, #audio]
     else:
         d = util.cos_sim(torch.tensor(cap_embs), torch.tensor(audio))
-        d = torch.exp(torch.tensor(d))
+        d = torch.exp(torch.tensor(d)/0.05)
         d_norm = torch.sum(d)
         d = d/d_norm
         d = d.cpu().numpy()
@@ -346,3 +365,185 @@ def crossentropy_measure(pi_star, audio2text=False, use_ot=False):
     kl = torch.sum(kl)
     # print(kl)
     return kl
+
+
+def a2t_ot_kernel(audio_embs, cap_embs, M,use_ot=True, use_cosine=True, train_data=False):
+    if not train_data:
+        audio = [audio_embs[i] for i in range(0, len(audio_embs), 5)]
+    else:
+        audio = audio_embs
+
+    rank_list = []
+
+    a = torch.ones(len(audio))/len(audio)
+    b = torch.ones(len(cap_embs))/len(cap_embs)
+
+    # polynomial kernel
+    # M_dist = torch.pow(torch.tensor(audio)@torch.tensor(cap_embs).t() + 1, 2)
+
+    # L2 gaussian kernel
+    # dist = ot.dist(torch.tensor(audio),torch.tensor(cap_embs))
+    # M_dist = torch.exp(-dist/2)
+
+    # dot prod gaussian kernel
+    # M_dist = gaussian_dotprod_kernel(torch.tensor(audio),torch.tensor(cap_embs))
+
+    # Mahanalobis distance
+    cap_embs = torch.tensor(cap_embs)
+    audio = torch.tensor(audio)
+
+    if not use_cosine:
+        pairwise_dist = audio.unsqueeze(1).repeat(1,cap_embs.size(0),1) - cap_embs.unsqueeze(0).repeat(audio.size(0), 1,1)
+        t_pairwise_dist = pairwise_dist.transpose(1,2)
+        M_dist = torch.einsum("ijk,ikj,kk->ij", pairwise_dist.float(), t_pairwise_dist.float(), M.float().cpu())
+        M_dist = torch.sqrt(M_dist)
+    else:
+        M_dist= torch.einsum("ik,jk,kk->ij", audio.float(), cap_embs.float(), M.float().cpu())
+
+    # M_dist = 1-M_dist
+    M_dist = M_dist/M_dist.max()
+
+    if use_ot:
+        d = ot.sinkhorn(a,b,M_dist, reg=0.05, numItermax=100).cpu().numpy()
+        # print("audio to text OT:")
+        # print(torch.argmax(torch.tensor(d[:10,:])))
+    else:
+        d = util.cos_sim(torch.tensor(audio).to(torch.device("cuda")), torch.tensor(cap_embs).to(torch.device("cuda")))
+        d = torch.exp(d)
+        d_norm = torch.sum(d)
+        d = d/d_norm
+        d = d.cpu().numpy()
+
+    for index in range(len(audio)):
+        inds = np.argsort(d[index])[::-1] # sort an array by index
+        inds_map = []
+        rank = 1e20
+        if not train_data:
+            for i in range(5 * index, 5 * index + 5, 1):
+                tmp = np.where(inds == i)[0][0]
+                if tmp < rank:
+                    rank = tmp
+                if tmp < 10:
+                    inds_map.append(tmp + 1)
+            rank_list.append(rank)
+        else:
+            # for i in range(5 * index, 5 * index + 5, 1):
+            tmp = np.where(inds == index)[0][0]
+            if tmp < rank:
+                rank = tmp
+            if tmp < 10:
+                inds_map.append(tmp + 1)
+            rank_list.append(rank)
+    preds = np.array(rank_list)
+
+    medr = np.floor(np.median(preds)) + 1
+    meanr = preds.mean() + 1
+    r1 = np.mean(preds < 1)*100
+    r5 = np.mean(preds < 5)*100
+    r10 = np.mean(preds < 10)*100
+    r50 = np.mean(preds < 50)*100
+    crossentropy = crossentropy_measure(d, True, use_ot)
+    return r1, r5, r10, r50, medr, meanr, crossentropy
+
+
+def t2a_ot_kernel(audio_embs, cap_embs, M, use_ot=True, use_cosine=True, train_data=False):
+    if not train_data:
+        audio = [audio_embs[i] for i in range(0, len(audio_embs), 5)]
+    else:
+        audio = audio_embs
+    rank_list = []
+    a = torch.ones(len(cap_embs))/len(cap_embs)
+    b = torch.ones(len(audio))/len(audio)
+
+    # polynomial kernel
+    # M_dist = torch.pow(torch.tensor(cap_embs)@torch.tensor(audio).t() + 1, 2)
+
+    # l2 gaussian kernel
+    # dist = ot.dist(torch.tensor(cap_embs),torch.tensor(audio))
+    # M_dist = torch.exp(-dist/2)
+
+    # dotprod gaussian kernel
+    # M_dist =gaussian_dotprod_kernel(torch.tensor(cap_embs),torch.tensor(audio))
+
+    # Mahanalobis distance
+    cap_embs = torch.tensor(cap_embs)
+    audio = torch.tensor(audio)
+
+    if not use_cosine:
+        pairwise_dist = cap_embs.unsqueeze(1).repeat(1,audio.size(0),1) - audio.unsqueeze(0).repeat(cap_embs.size(0), 1,1)
+        t_pairwise_dist = pairwise_dist.transpose(1,2)
+        M_dist = torch.einsum("ijk,ikj,kk->ij", pairwise_dist.float(), t_pairwise_dist.float(), M.float().cpu())
+        M_dist = torch.sqrt(M_dist)
+    else:
+        M_dist = torch.einsum("ik,jk,kk->ij", cap_embs.float(), audio.float(), M.float().cpu())
+
+    # M_dist = 1-M_dist
+    M_dist = M_dist/M_dist.max()
+
+    if use_ot:  
+        # d = ot.partial.entropic_partial_wasserstein(a,b,M_dist, reg=0.04, m=0.94, numItermax=20)
+        d = ot.sinkhorn(a,b,M_dist, reg=0.05, numItermax=100).cpu().numpy() #[#cap_embs, #audio]
+        # print("text to audio OT:")
+        # # print(d[:10,:])
+        # print(torch.argmin(M_dist[:10,:], dim=-1))
+        # print(torch.min(M_dist[:10,:], dim=-1))
+        # print("-"*60)
+        # print(torch.argmax(M_dist[:10,:], dim=-1))
+        # print(torch.max(M_dist[:10,:], dim=-1))
+        # print(torch.argmax(torch.from_numpy(d[:10,:]), dim=-1))
+        # print(torch.max(torch.from_numpy(d[:10,:]), dim=-1))
+    else:
+        d = util.cos_sim(torch.tensor(cap_embs), torch.tensor(audio))
+        d = torch.exp(torch.tensor(d))
+        d_norm = torch.sum(d)
+        d = d/d_norm
+        d = d.cpu().numpy()
+
+    for index in range(len(audio)):
+        if not train_data:
+            for i in range(5*index, 5*index+5, 1):
+                inds = np.argsort(d[i])[::-1]
+                rank = np.where(inds==index)[0][0]
+                rank_list.append(rank)
+        else:
+            inds = np.argsort(d[index])[::-1]
+            rank = np.where(inds==index)[0][0]
+            rank_list.append(rank)
+        
+    preds = np.array(rank_list)
+    medr = np.floor(np.median(preds)) + 1
+    meanr = preds.mean() + 1
+    r1 = np.mean(preds < 1)*100
+    r5 = np.mean(preds < 5)*100
+    r10 = np.mean(preds < 10)*100
+    r50 = np.mean(preds < 50)*100
+    crossentropy = crossentropy_measure(d, False, use_ot)
+    return r1, r5, r10, r50, medr, meanr, crossentropy
+
+def visual_plan(d):
+    fig, ax = pl.subplots()
+    matrix = d[:10,:50]
+    
+    index = [i for i in range(0,50,5)]
+    matrix = matrix[:, index]
+    pl.matshow(matrix)
+    pl.xlabel("Caption", fontsize=20)
+    pl.ylabel("Audio", fontsize=20)
+    pl.savefig("cosine-ot.png")
+
+def visual_true_plan(d):
+    true_pi = torch.zeros(d.shape[0], d.shape[1])
+    for i in range(d.shape[0]):
+        true_pi[i, i*5:i*5+5]=1
+    true_pi = true_pi/(d.shape[0]*d.shape[1])
+    true_pi = true_pi.cpu().numpy()
+
+    matrix = true_pi[:10,:50]
+    
+    index = [i for i in range(0,50,5)]
+    matrix = matrix[:, index]
+    pl.matshow(matrix)
+    # pl.colorbar()
+    pl.xlabel("Caption",fontsize=20)
+    pl.ylabel("Audio", fontsize=20)
+    pl.savefig("cosine-true-plan.png")

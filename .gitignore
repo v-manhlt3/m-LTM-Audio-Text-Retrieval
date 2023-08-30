@@ -2,6 +2,7 @@ outputs/*
 tuning-output/*
 tuning-output-old/*
 noisy-output/*
+rbf-output/*
 logs/*
 pretrained_models/*
 data/*

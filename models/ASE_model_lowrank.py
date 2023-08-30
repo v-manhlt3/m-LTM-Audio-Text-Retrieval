@@ -80,6 +80,15 @@ class ASE(nn.Module):
                 nn.ReLU(),
                 nn.Linear(joint_embed * 2, joint_embed)
             )
+        # diagonal matrix
+        # self.L = torch.nn.Parameter(torch.rand(joint_embed).uniform_(0, 0.1))
+        # self.L = torch.nn.Parameter(torch.ones(joint_embed))
+
+        #Gram matrix 
+        A = torch.rand(joint_embed, joint_embed).to(torch.device("cuda"))
+        init_M = 0.5*(A+A.t())
+        init_M = init_M + torch.eye(joint_embed).to(torch.device("cuda"))
+        self.L = torch.nn.Parameter(init_M)
 
     def encode_audio(self, audios):
         # audio_encoded = self.encode_audio(audios)
@@ -100,6 +109,8 @@ class ASE(nn.Module):
         else:
             audio_encoded = self.encode_audio(audios)     # batch x channel
             audio_embed = self.audio_linear(audio_encoded)
+
+            # audio2 = self.audio_linear(audio_encoded.clone().detach())
             audio_embed = l2norm(audio_embed)
             # audio_embed2 = self.audio_linear(audio_encoded.detach())
             # audio_embed2 = l2norm(audio_embed2)
@@ -110,6 +121,8 @@ class ASE(nn.Module):
         else:
             caption_encoded = self.encode_text(captions)
             caption_embed = self.text_linear(caption_encoded)
+
+            # caption2 = self.text_linear(caption_encoded.clone().detach())
             caption_embed = l2norm(caption_embed)
             # caption_embed2 = self.text_linear(caption_encoded.detach())
             # caption_embed2 = l2norm(caption_embed2)
