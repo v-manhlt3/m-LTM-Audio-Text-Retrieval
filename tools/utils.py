@@ -259,6 +259,14 @@ def a2t_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False)
 
     visual_plan(d)
     visual_true_plan(d)
+    cap_embs = torch.tensor(cap_embs)
+    audio = torch.tensor(audio)
+    mean_cap = torch.mean(cap_embs, dim=0)
+    mean_audio = torch.mean(audio, dim=0)
+    gap = torch.pow(mean_cap-mean_audio, 2).sum().sqrt()
+    print("*"*50)
+    print("modality gap: ", gap)
+    print("*"*50)
 
     for index in range(len(audio)):
         inds = np.argsort(d[index])[::-1] # sort an array by index
@@ -378,27 +386,24 @@ def a2t_ot_kernel(audio_embs, cap_embs, M,use_ot=True, use_cosine=True, train_da
     a = torch.ones(len(audio))/len(audio)
     b = torch.ones(len(cap_embs))/len(cap_embs)
 
-    # polynomial kernel
-    # M_dist = torch.pow(torch.tensor(audio)@torch.tensor(cap_embs).t() + 1, 2)
-
-    # L2 gaussian kernel
-    # dist = ot.dist(torch.tensor(audio),torch.tensor(cap_embs))
-    # M_dist = torch.exp(-dist/2)
-
-    # dot prod gaussian kernel
-    # M_dist = gaussian_dotprod_kernel(torch.tensor(audio),torch.tensor(cap_embs))
-
     # Mahanalobis distance
     cap_embs = torch.tensor(cap_embs)
     audio = torch.tensor(audio)
 
-    if not use_cosine:
-        pairwise_dist = audio.unsqueeze(1).repeat(1,cap_embs.size(0),1) - cap_embs.unsqueeze(0).repeat(audio.size(0), 1,1)
-        t_pairwise_dist = pairwise_dist.transpose(1,2)
-        M_dist = torch.einsum("ijk,ikj,kk->ij", pairwise_dist.float(), t_pairwise_dist.float(), M.float().cpu())
-        M_dist = torch.sqrt(M_dist)
-    else:
-        M_dist= torch.einsum("ik,jk,kk->ij", audio.float(), cap_embs.float(), M.float().cpu())
+    mean_cap = torch.mean(cap_embs, dim=0)
+    mean_audio = torch.mean(audio, dim=0)
+    gap = torch.pow(mean_cap-mean_audio, 2).sum().sqrt()
+    print("*"*50)
+    print("modality gap: ", gap)
+    print("*"*50)
+
+    # if not use_cosine:
+    pairwise_dist = audio.unsqueeze(1).repeat(1,cap_embs.size(0),1) - cap_embs.unsqueeze(0).repeat(audio.size(0), 1,1)
+    t_pairwise_dist = pairwise_dist.transpose(1,2)
+    M_dist = torch.einsum("ijk,ikj,kk->ij", pairwise_dist.float(), t_pairwise_dist.float(), M.float().cpu())
+    M_dist = torch.sqrt(M_dist)
+    # else:
+    #     M_dist= torch.einsum("ik,jk,kk->ij", audio.float(), cap_embs.float(), M.float().cpu())
 
     # M_dist = 1-M_dist
     M_dist = M_dist/M_dist.max()
@@ -469,13 +474,13 @@ def t2a_ot_kernel(audio_embs, cap_embs, M, use_ot=True, use_cosine=True, train_d
     cap_embs = torch.tensor(cap_embs)
     audio = torch.tensor(audio)
 
-    if not use_cosine:
-        pairwise_dist = cap_embs.unsqueeze(1).repeat(1,audio.size(0),1) - audio.unsqueeze(0).repeat(cap_embs.size(0), 1,1)
-        t_pairwise_dist = pairwise_dist.transpose(1,2)
-        M_dist = torch.einsum("ijk,ikj,kk->ij", pairwise_dist.float(), t_pairwise_dist.float(), M.float().cpu())
-        M_dist = torch.sqrt(M_dist)
-    else:
-        M_dist = torch.einsum("ik,jk,kk->ij", cap_embs.float(), audio.float(), M.float().cpu())
+    # if not use_cosine:
+    pairwise_dist = cap_embs.unsqueeze(1).repeat(1,audio.size(0),1) - audio.unsqueeze(0).repeat(cap_embs.size(0), 1,1)
+    t_pairwise_dist = pairwise_dist.transpose(1,2)
+    M_dist = torch.einsum("ijk,ikj,kk->ij", pairwise_dist.float(), t_pairwise_dist.float(), M.float().cpu())
+    M_dist = torch.sqrt(M_dist)
+    # else:
+    #     M_dist = torch.einsum("ik,jk,kk->ij", cap_embs.float(), audio.float(), M.float().cpu())
 
     # M_dist = 1-M_dist
     M_dist = M_dist/M_dist.max()

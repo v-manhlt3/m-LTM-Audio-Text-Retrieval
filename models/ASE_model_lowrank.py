@@ -112,8 +112,7 @@ class ASE(nn.Module):
 
             # audio2 = self.audio_linear(audio_encoded.clone().detach())
             audio_embed = l2norm(audio_embed)
-            # audio_embed2 = self.audio_linear(audio_encoded.detach())
-            # audio_embed2 = l2norm(audio_embed2)
+
         
         if captions == None:
             caption_encoded = None
@@ -124,37 +123,6 @@ class ASE(nn.Module):
 
             # caption2 = self.text_linear(caption_encoded.clone().detach())
             caption_embed = l2norm(caption_embed)
-            # caption_embed2 = self.text_linear(caption_encoded.detach())
-            # caption_embed2 = l2norm(caption_embed2)
-        # audio_embed = self.audio_linear(audio_encoded)
-        # if self.l2:
-            # apply l2-norm on the embeddings
-        
-        # audio_embed = l2norm(audio_embed)
-        # caption_embed = l2norm(caption_embed)
+
 
         return audio_embed, caption_embed
-
-class Score(nn.Module):
-    def __init__(self, input_dim):
-        super().__init__()
-        self.layers = nn.Sequential(
-            nn.Linear(input_dim*2, 1024),
-            nn.LeakyReLU(),
-            nn.Linear(1024, 512),
-            nn.LeakyReLU(),
-            nn.Linear(512, 512),
-            nn.LeakyReLU(),
-            nn.Linear(512, 1),
-            nn.Sigmoid())
-
-        self.input_dim = input_dim
-
-    def forward(self, x, y):
-        x_ = x.view(1, x.size(0), x.size(1))
-        y_ = y.view(y.size(0), 1, y.size(1))
-
-        x_ = torch.broadcast_to(x_, (x.size(0), x.size(0), x.size(1)))
-        y_ = torch.broadcast_to(y_, (y.size(0), y.size(0), y.size(1)))
-        inputs = torch.concat((x_,y_), dim=-1)
-        return self.layers(inputs)

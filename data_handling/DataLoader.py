@@ -34,9 +34,9 @@ class AudioCaptionDataset2(Dataset):
                 self.audio_keys = [audio_name.decode() for audio_name in hf['audio_name'][:]]
                 # audio_names: [str]
                 self.captions = [caption.decode() for caption in hf['caption'][:]]
-                # shuffle_cap = self.captions[:int(len(self.captions)*self.noise_p)]
-                # random.shuffle(shuffle_cap)
-                # self.captions[:int(len(self.captions)*self.noise_p)] = shuffle_cap
+                shuffle_cap = self.captions[:int(len(self.captions)*self.noise_p)]
+                random.shuffle(shuffle_cap)
+                self.captions[:int(len(self.captions)*self.noise_p)] = shuffle_cap
         else:
                 self.is_train = False
                 self.num_captions_per_audio = 5
@@ -85,9 +85,6 @@ class ESCDataset(Dataset):
         with h5py.File(self.h5_path, 'r') as hf:
             self.audio_keys = [audio_name.decode() for audio_name in hf['audio_name'][:]]
             self.captions = [caption.decode() for caption in hf['caption'][:]]
-            shuffle_cap = self.captions[:int(len(self.captions)*self.noise_p)]
-            random.shuffle(shuffle_cap)
-            self.captions[:int(len(self.captions)*self.noise_p)] = shuffle_cap
 
     def __len__(self):
         return len(self.audio_keys) * self.num_captions_per_audio
@@ -104,12 +101,9 @@ class ESCDataset(Dataset):
 
 def collate_fn(batch_data):
     """
-
     Args:
         batch_data:
-
     Returns:
-
     """
 
     max_audio_length = max([i[3] for i in batch_data])

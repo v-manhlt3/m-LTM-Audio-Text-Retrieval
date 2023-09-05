@@ -71,7 +71,8 @@ def train(config):
     optimizer = torch.optim.Adam(params=model.parameters(), lr=config.training.lr)
     # opt_l = torch.optim.Adam(params=[L.data], lr=10)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
-    criterion = MahalalobisL2(epsilon=config.training.epsilon, reg=config.training.reg, use_cosine=config.training.use_cosine)
+    criterion = MahalalobisL2(epsilon=config.training.epsilon, reg=config.training.reg,
+                            use_cosine=config.training.use_cosine, m=config.training.m)
     # if config.training.loss == 'triplet':
     #     criterion = TripletLoss(margin=config.training.margin)
     # elif config.training.loss == 'ntxent':
@@ -112,94 +113,89 @@ def train(config):
     num_test_samples = 958
 
     # r_sum_a2t, r_sum_t2a = validate(val_loader, model, device, writer, -1, model.L,use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
-    noise_p = config.training.noise_p
-    for epoch in range(ep, config.training.epochs + 1):
-        main_logger.info(f'Training for epoch [{epoch}]')
+    # noise_p = config.training.noise_p
+    # for epoch in range(ep, config.training.epochs + 1):
+    #     main_logger.info(f'Training for epoch [{epoch}]')
 
-        epoch_loss = AverageMeter()
-        start_time = time.time()
-        model.train()
+    #     epoch_loss = AverageMeter()
+    #     start_time = time.time()
+    #     model.train()
 
+    #     for batch_id, batch_data in tqdm(enumerate(train_loader), total=len(train_loader)):
 
-        for batch_id, batch_data in tqdm(enumerate(train_loader), total=len(train_loader)):
+    #         audios, captions, audio_ids, _ = batch_data
+    #         # move data to GPU
+    #         audios = audios.to(device)
+    #         audio_ids = audio_ids.to(device)
 
-            audios, captions, audio_ids, _ = batch_data
-            shuffle_cap = captions[:int(len(captions)*noise_p)]
-            random.shuffle(shuffle_cap)
-            captions[:int(len(captions)*noise_p)] = shuffle_cap
-            # move data to GPU
-            audios = audios.to(device)
-            audio_ids = audio_ids.to(device)
-
-            # # old exp
-            # audio_embeds, caption_embeds = model(audios, captions)
+    #         # # old exp
+    #         # audio_embeds, caption_embeds = model(audios, captions)
             
-            # # new exp
-            audio_embeds, caption_embeds = model(audios, captions)
-            # if batch_id%10!=0:
-            #     M = model.L.detach()
-            # else:
-            M = model.L
-            # M = torch.diag(model.L)
+    #         # # new exp
+    #         audio_embeds, caption_embeds = model(audios, captions)
+    #         # if batch_id%10!=0:
+    #         #     M = model.L.detach()
+    #         # else:
+    #         M = model.L
+    #         # M = torch.diag(model.L)
 
-            # loss = criterion(audio_embeds, caption_embeds, audio_ids)
-            loss = criterion(audio_embeds, caption_embeds, model.L)
+    #         # loss = criterion(audio_embeds, caption_embeds, audio_ids)
+    #         loss = criterion(audio_embeds, caption_embeds, model.L)
 
-            optimizer.zero_grad()
-            # opt_l.zero_grad()
+    #         optimizer.zero_grad()
+    #         # opt_l.zero_grad()
             
-            loss.backward()
-            # print("L grad: ", L.grad)
-            # if batch_id%10==0:
-            # L.data = L.data + 1e-4*L.grad
-            torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.clip_grad)
-            optimizer.step()
+    #         loss.backward()
+    #         # print("L grad: ", L.grad)
+    #         # if batch_id%10==0:
+    #         # L.data = L.data + 1e-4*L.grad
+    #         torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.clip_grad)
+    #         optimizer.step()
             
-            # constraint matrix L
-            M = model.L
-            M = torch.nan_to_num(M)
-            u, s, v =torch.svd(M)
-            s = torch.clamp(s, min=0)
-            M_constraint = u@torch.diag(s)@v.t()
-            model.L.data = M_constraint
+    #         # constraint matrix L
+    #         M = model.L
+    #         M = torch.nan_to_num(M)
+    #         u, s, v =torch.svd(M)
+    #         s = torch.clamp(s, min=0)
+    #         M_constraint = u@torch.diag(s)@v.t()
+    #         model.L.data = M_constraint
 
-            # L = model.L
-            # L = torch.clip(L, min=0)
-            # model.L.data = L
-            
+    #         epoch_loss.update(loss.cpu().item())
+        
+    #     small_eigen = s<1
+    #     num_small_eigen = torch.sum(small_eigen)
+    #     writer.add_scalar('train/num_small_eigen', num_small_eigen.item(), epoch)
+    #     writer.add_scalar('train/loss', epoch_loss.avg, epoch)
 
-            epoch_loss.update(loss.cpu().item())
-        writer.add_scalar('train/loss', epoch_loss.avg, epoch)
+    #     elapsed_time = time.time() - start_time
 
-        elapsed_time = time.time() - start_time
+    #     main_logger.info(f'Training statistics:\tloss for epoch [{epoch}]: {epoch_loss.avg:.3f},'
+    #                      f'\ttime: {elapsed_time:.1f}, lr: {scheduler.get_last_lr()[0]:.6f}.')
 
-        main_logger.info(f'Training statistics:\tloss for epoch [{epoch}]: {epoch_loss.avg:.3f},'
-                         f'\ttime: {elapsed_time:.1f}, lr: {scheduler.get_last_lr()[0]:.6f}.')
+    #     # validation loop, validation after each epoch
+    #     main_logger.info("Validating...")
+    #     r_sum_a2t, r_sum_t2a = validate(val_loader, model, device, writer, epoch, model.L,use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
 
-        # validation loop, validation after each epoch
-        main_logger.info("Validating...")
-        r_sum_a2t, r_sum_t2a = validate(val_loader, model, device, writer, epoch, model.L,use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
+    #     recall_sum_a2t.append(r_sum_a2t)
+    #     recall_sum_t2a.append(r_sum_t2a)
 
-        recall_sum_a2t.append(r_sum_a2t)
-        recall_sum_t2a.append(r_sum_t2a)
+    #     # save model
+    #     if r_sum_a2t >= max(recall_sum_a2t):
+    #         main_logger.info('Model saved.')
+    #         torch.save({
+    #             'model': model.state_dict(),
+    #             'optimizer': model.state_dict(),
+    #             'epoch': epoch,
+    #         }, str(model_output_dir) + '/a2t_best_model.pth')
+    #     if r_sum_t2a >= max(recall_sum_t2a):
+    #         main_logger.info('Model saved.')
+    #         torch.save({
+    #             'model': model.state_dict (),
+    #             'optimizer': model.state_dict(),
+    #             'epoch': epoch,
+    #         }, str(model_output_dir) + '/t2a_best_model.pth')
 
-        # save model
-        if r_sum_a2t >= max(recall_sum_a2t):
-            main_logger.info('Model saved.')
-            torch.save({
-                'model': model.state_dict(),
-                'optimizer': model.state_dict(),
-                'epoch': epoch,
-            }, str(model_output_dir) + '/a2t_best_model.pth')
-        if r_sum_t2a >= max(recall_sum_t2a):
-            main_logger.info('Model saved.')
-            torch.save({
-                'model': model.state_dict (),
-                'optimizer': model.state_dict(),
-                'epoch': epoch,
-            }, str(model_output_dir) + '/t2a_best_model.pth')
-
-        scheduler.step()
+    #     scheduler.step()
 
     # Training done, evaluate on evaluation set
     main_logger.info('-'*90)

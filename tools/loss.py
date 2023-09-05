@@ -386,7 +386,7 @@ class MahalalobisL(nn.Module):
 
 class MahalalobisL2(nn.Module):
 
-    def __init__(self, epsilon=0.05, use_cosine=True, reg=0.1):
+    def __init__(self, epsilon=0.05, use_cosine=True, reg=0.1, m=0.95):
         super(MahalalobisL2, self).__init__()
         self.epsilon = epsilon
         self.use_cosine = use_cosine
@@ -394,6 +394,7 @@ class MahalalobisL2(nn.Module):
         self.reg = reg
         self.mmd_reg = MMDLoss()
         self.mmd_reg.cuda()
+        self.m =m
         # self.metric = metric
     
     def forward(self, audio_emb, text_emb, L):
@@ -410,8 +411,11 @@ class MahalalobisL2(nn.Module):
         # L = torch.clamp(L, min=0)
         # M = torch.diag(L)
         M = L
-        reg = torch.sum(L)
-        neg_eigen = L>0
+        M = torch.nan_to_num(M)
+        u, s, v =torch.svd(M)
+        reg = torch.sum(s)
+        pos_eigen = s>0
+        small_eigen = s<1
 
         # if not self.use_cosine:
             # Mahanalobis distance
@@ -422,8 +426,8 @@ class MahalalobisL2(nn.Module):
         M_dist = M_dist/M_dist.max()
 
 
-        pi = ot.sinkhorn(a,b,M_dist, reg=self.epsilon, numItermax=10)
-        # pi = ot.partial.entropic_partial_wasserstein(a,b,M_dist, reg=self.epsilon, m=0.8, numItermax=10)
+        pi = ot.sinkhorn(a,b,M_dist, reg=self.epsilon, numItermax=100)
+        # pi = ot.partial.entropic_partial_wasserstein(a,b,M_dist, reg=self.epsilon, m=self.m, numItermax=10)
 
         # audio_reg = ot.sinkhorn2(a,b,M_dist_a, reg=0.1, numItermax=10)
         # text_reg = ot.sinkhorn2(a,b,M_dist_t, reg=0.1, numItermax=10)
@@ -435,9 +439,15 @@ class MahalalobisL2(nn.Module):
         # loss = wloss + self.reg*torch.min(reg-30, torch.tensor(0))
         # loss = wloss + self.reg*reg
         # loss = wloss + mmd_reg
-        loss = wloss + self.reg*mmd_reg
-        print("Wloss: ", wloss)
-        print("mmd reg: ", mmd_reg)
+        loss = wloss + self.reg*reg
+        # print("Wloss: ", wloss)
+        # print("eigen reg: ", reg)
+        # print("mmd reg: ", mmd_reg)
+        # print("min eigen: ", torch.min(s))
+        # print("max eigen: ", torch.max(s))
+        # print("positive eigen: ", torch.sum(pos_eigen))
+        # print("small eigen: ", torch.sum(small_eigen))
+        # print("*"*70)
 
         return loss
 

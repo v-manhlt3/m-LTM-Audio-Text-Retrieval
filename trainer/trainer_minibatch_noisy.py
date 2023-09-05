@@ -15,7 +15,7 @@ from pprint import PrettyPrinter
 from torch.utils.tensorboard import SummaryWriter
 from tools.utils import setup_seed, AverageMeter, a2t_ot, t2a_ot, t2a, a2t, a2t_ot_kernel, t2a_ot_kernel
 from tools.loss import BiDirectionalRankingLoss, TripletLoss, NTXent, WeightTriplet, \
-                        POTLoss, OTLoss, WassersteinLoss, LearnScoreW
+                        POTLoss, OTLoss, WassersteinLoss
 from models.ASE_model import ASE
 # from models.ASE_model_sliceW import ASE
 from data_handling.DataLoader import get_dataloader2
@@ -35,8 +35,8 @@ def train(config):
                                              config.training.m,
                                              config.training.lr)
 
-    log_output_dir = Path('noisy-output', folder_name, 'logging')
-    model_output_dir = Path('noisy-output', folder_name, 'models')
+    log_output_dir = Path('rbf-output', folder_name, 'logging')
+    model_output_dir = Path('rbf-output', folder_name, 'models')
     log_output_dir.mkdir(parents=True, exist_ok=True)
     model_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -81,8 +81,8 @@ def train(config):
         criterion = WassersteinLoss(epsilon=config.training.epsilon, use_cosine=config.training.use_cosine, reg=config.training.reg)
     elif config.training.loss == 'ot':
         criterion = OTLoss(epsilon=config.training.epsilon, use_cosine=config.training.use_cosine)
-    elif config.training.loss == 'learnW':
-        criterion = LearnScoreW()
+    # elif config.training.loss == 'learnW':
+    #     criterion = LearnScoreW()
     else:
         criterion = BiDirectionalRankingLoss(margin=config.training.margin)
 
@@ -111,76 +111,76 @@ def train(config):
     # best_checkpoint_a2t = torch.load(str(model_output_dir) + '/t2a_best_model.pth')
     # model.load_state_dict(best_checkpoint_a2t['model'])
     # r_sum_a2t, r_sum_t2a = validate(val_loader, model, device, writer, 1, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
-    for epoch in range(ep, config.training.epochs + 1):
-        main_logger.info(f'Training for epoch [{epoch}]')
+    # for epoch in range(ep, config.training.epochs + 1):
+    #     main_logger.info(f'Training for epoch [{epoch}]')
 
-        epoch_loss = AverageMeter()
-        start_time = time.time()
-        model.train()
+    #     epoch_loss = AverageMeter()
+    #     start_time = time.time()
+    #     model.train()
 
 
-        for batch_id, batch_data in tqdm(enumerate(train_loader), total=len(train_loader)):
+    #     for batch_id, batch_data in tqdm(enumerate(train_loader), total=len(train_loader)):
 
-            audios, captions, audio_ids, _ = batch_data
-            # if count_train_data < max_count_train_data:
-            #     train_valid.append(batch_data)
-            # print(captions)
+    #         audios, captions, audio_ids, _ = batch_data
+    #         # if count_train_data < max_count_train_data:
+    #         #     train_valid.append(batch_data)
+    #         # print(captions)
 
-            # move data to GPU
-            audios = audios.to(device)
-            audio_ids = audio_ids.to(device)
+    #         # move data to GPU
+    #         audios = audios.to(device)
+    #         audio_ids = audio_ids.to(device)
 
-            # # old exp
-            # audio_embeds, caption_embeds = model(audios, captions)
+    #         # # old exp
+    #         # audio_embeds, caption_embeds = model(audios, captions)
             
-            # # new exp
-            audio_embeds, caption_embeds = model(audios, captions)
+    #         # # new exp
+    #         audio_embeds, caption_embeds = model(audios, captions)
 
-            # loss = criterion(audio_embeds, caption_embeds, audio_ids)
-            loss = criterion(audio_embeds, caption_embeds, audio_ids)
+    #         # loss = criterion(audio_embeds, caption_embeds, audio_ids)
+    #         loss = criterion(audio_embeds, caption_embeds, audio_ids)
 
-            optimizer.zero_grad()
+    #         optimizer.zero_grad()
 
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.clip_grad)
-            optimizer.step()
+    #         loss.backward()
+    #         torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.clip_grad)
+    #         optimizer.step()
 
-            epoch_loss.update(loss.cpu().item())
-        writer.add_scalar('train/loss', epoch_loss.avg, epoch)
+    #         epoch_loss.update(loss.cpu().item())
+    #     writer.add_scalar('train/loss', epoch_loss.avg, epoch)
 
-        elapsed_time = time.time() - start_time
+    #     elapsed_time = time.time() - start_time
 
-        main_logger.info(f'Training statistics:\tloss for epoch [{epoch}]: {epoch_loss.avg:.3f},'
-                         f'\ttime: {elapsed_time:.1f}, lr: {scheduler.get_last_lr()[0]:.6f}.')
+    #     main_logger.info(f'Training statistics:\tloss for epoch [{epoch}]: {epoch_loss.avg:.3f},'
+    #                      f'\ttime: {elapsed_time:.1f}, lr: {scheduler.get_last_lr()[0]:.6f}.')
 
-        # validation loop, validation after each epoch
-        main_logger.info("Validating...")
-        r_sum_a2t, r_sum_t2a = validate(val_loader, model, device, writer, epoch, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
-        # r1_t2a, r1_a2t = validate_train_data(train_loader, model, device, epoch, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
-        # # r_sum = r1 + r5 + r10
-        # writer.add_scalar('train/r1_a2t', r1_a2t, epoch)
-        # writer.add_scalar('train/r1_t2a', r1_t2a, epoch)
+    #     # validation loop, validation after each epoch
+    #     main_logger.info("Validating...")
+    #     r_sum_a2t, r_sum_t2a = validate(val_loader, model, device, writer, epoch, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
+    #     # r1_t2a, r1_a2t = validate_train_data(train_loader, model, device, epoch, use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
+    #     # # r_sum = r1 + r5 + r10
+    #     # writer.add_scalar('train/r1_a2t', r1_a2t, epoch)
+    #     # writer.add_scalar('train/r1_t2a', r1_t2a, epoch)
 
-        recall_sum_a2t.append(r_sum_a2t)
-        recall_sum_t2a.append(r_sum_t2a)
+    #     recall_sum_a2t.append(r_sum_a2t)
+    #     recall_sum_t2a.append(r_sum_t2a)
 
-        # save model
-        if r_sum_a2t >= max(recall_sum_a2t):
-            main_logger.info('Model saved.')
-            torch.save({
-                'model': model.state_dict(),
-                'optimizer': model.state_dict(),
-                'epoch': epoch,
-            }, str(model_output_dir) + '/a2t_best_model.pth')
-        if r_sum_t2a >= max(recall_sum_t2a):
-            main_logger.info('Model saved.')
-            torch.save({
-                'model': model.state_dict (),
-                'optimizer': model.state_dict(),
-                'epoch': epoch,
-            }, str(model_output_dir) + '/t2a_best_model.pth')
+    #     # save model
+    #     if r_sum_a2t >= max(recall_sum_a2t):
+    #         main_logger.info('Model saved.')
+    #         torch.save({
+    #             'model': model.state_dict(),
+    #             'optimizer': model.state_dict(),
+    #             'epoch': epoch,
+    #         }, str(model_output_dir) + '/a2t_best_model.pth')
+    #     if r_sum_t2a >= max(recall_sum_t2a):
+    #         main_logger.info('Model saved.')
+    #         torch.save({
+    #             'model': model.state_dict (),
+    #             'optimizer': model.state_dict(),
+    #             'epoch': epoch,
+    #         }, str(model_output_dir) + '/t2a_best_model.pth')
 
-        scheduler.step()
+    #     scheduler.step()
 
     # Training done, evaluate on evaluation set
     main_logger.info('-'*90)

@@ -31,10 +31,8 @@ def eval_zeroshot_audio_event(config):
     all_audio_features = []
     labels = []
     all_texts = [f"This is a sound of {t}." for t in class_index_dict.keys()]
-    # all_texts = torch.tensor(all_texts).to(torch.device("cuda"))
 
     _, caption_embeds = model(None, all_texts)
-    # caption_embeds = model.encode_text(all_texts)
 
     print(caption_embeds.size())
     all_class_labels = [] 
@@ -103,11 +101,17 @@ def eval_zeroshot_audio_event(config):
     print("R1: {}| R5: {}| R10: {}| mAP10: {}".format(r1, r5, r10, mAP10))
 
 def visualize_emb(text_emb, audio_emb):
-    tsne = TSNE(n_iter=1000, perplexity=1)
-    text_label = torch.zeros(text_emb.size(0))
+    tsne = TSNE(n_iter=1000, perplexity=2)
+
+    mean_text = torch.mean(text_emb, dim=0)
+    mean_audio = torch.mean(audio_emb, dim=0)
+    gap = torch.pow(mean_text- mean_audio, 2).sum().sqrt()
+    print("Modality gap: ", gap)
+
+    text_label = torch.zeros(text_emb.size(0))*5
     audio_label = torch.ones(audio_emb.size(0))
     label = torch.concat((text_label, audio_label)).detach().cpu().numpy()
-    label_text = ['text' if i==0 else 'audio' for i in label]
+    label_text = ['red' if i==0 else 'blue' for i in label]
 
     data = torch.concat((text_emb, audio_emb), dim=0).detach().cpu().numpy()
     tsne_emb = tsne.fit_transform(data)
@@ -119,20 +123,22 @@ def visualize_emb(text_emb, audio_emb):
     tsne_emb[:,0] = (tsne_emb[:, 0]-min_x1)/(max_x1- min_x1)
     tsne_emb[:,1] = (tsne_emb[:, 1]-min_x2)/(max_x2- min_x2)
 
+    plt.rcParams.update({'font.size': 14})
     fig = plt.figure()
-    ax = fig.add_subplot(1,1,1,title="tSNE")
+    ax = fig.add_subplot(1,1,1,title="The shared embedding space")
     scatter = ax.scatter(
         x = tsne_emb[:,0],
         y = tsne_emb[:,1],
         c = label,
-        label=['text', 'audio'],
-        cmap=plt.cm.get_cmap('Paired'), 
-        alpha=0.7
+        cmap=plt.cm.get_cmap('rainbow'), 
+        alpha=1.0,
     )
-    # print(*scatter.legend_elements())
+    print(scatter.legend_elements()[0])
     legend1 = ax.legend(handles=scatter.legend_elements()[0],labels=['text', 'audio'],
                     loc="lower left", title="Classes")
     plt.savefig("tsne.png")
+
+
 
 if __name__ =="__main__":
     parser = argparse.ArgumentParser(description="Setting.")

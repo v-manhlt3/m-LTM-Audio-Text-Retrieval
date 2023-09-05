@@ -1,6 +1,6 @@
 mode: 'train'
 exp_name: 'exp'
-dataset: 'AudioCaps'
+dataset: 'Clotho'
 text_encoder: 'bert'
 joint_embed: 1024
 
@@ -24,7 +24,7 @@ data:
   num_workers: 8
 
 training:
-  epsilon: 0.03
+  epsilon: 0.05
   m: 0.95
   margin: 0.2
   freeze: No
@@ -32,8 +32,8 @@ training:
   use_ot: True
   reg: 1
   spec_augmentation: Yes
-  epochs: 30
-  lr: !!float 1e-4
+  epochs: 20
+  lr: !!float 5e-5
   clip_grad: 2
   seed: 1994
   resume: No
@@ -45,6 +45,7 @@ training:
 path:
   vocabulary: 'data/{}/pickles/words_list.p'
   word2vec: 'pretrained_models/w2v_all_vocabulary.model'
+  # resume_model: "noisy-output/Triplet-baseline_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
   resume_model: "noisy-output/NTXent-baseline-noOT_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
-  # resume_model: "noisy-output/reg10-NoNoise_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
-  
+  # resume_model: "noisy-output/Nonoise-Maha-distance_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
+  # resume_model: "rbf-output/1.0-rbf-Maha-Distance_data_AudioCaps_noise0_eps0.03_m0.95_lr_0.0001_/models"
