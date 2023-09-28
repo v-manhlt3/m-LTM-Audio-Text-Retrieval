@@ -6,3 +6,5 @@ rbf-output/*
 logs/*
 pretrained_models/*
 data/*
+ablation-output/*
+*.png

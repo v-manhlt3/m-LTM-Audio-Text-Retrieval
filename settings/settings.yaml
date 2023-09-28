@@ -1,6 +1,6 @@
 mode: 'train'
 exp_name: 'exp'
-dataset: 'Clotho'
+dataset: 'AudioCaps'
 text_encoder: 'bert'
 joint_embed: 1024
 
@@ -20,7 +20,7 @@ cnn_encoder:
   freeze: Yes
 
 data:
-  batch_size: 64
+  batch_size: 256
   num_workers: 8
 
 training:
@@ -28,12 +28,12 @@ training:
   m: 0.95
   margin: 0.2
   freeze: No
-  loss:  ot # 'triplet', 'weight', 'contrastive', 'pot', 'ntxent', 'wloss', 'ot'
+  loss:  ntxent # 'triplet', 'weight', 'contrastive', 'pot', 'ntxent', 'wloss', 'ot'
   use_ot: True
-  reg: 1
+  reg: 0
   spec_augmentation: Yes
-  epochs: 20
-  lr: !!float 5e-5
+  epochs: 10
+  lr: !!float 1e-4
   clip_grad: 2
   seed: 1994
   resume: No
@@ -45,7 +45,11 @@ training:
 path:
   vocabulary: 'data/{}/pickles/words_list.p'
   word2vec: 'pretrained_models/w2v_all_vocabulary.model'
+  # resume_model: "rbf-output/0.1reg-reproduce_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
   # resume_model: "noisy-output/Triplet-baseline_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
-  resume_model: "noisy-output/NTXent-baseline-noOT_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
+  resume_model: "noisy-output/NTXent-baseline_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
+  # resume_model: "rbf-output/NoReg-Eigen-Maha-Distance_data_AudioCaps_noise0_eps0.03_m0.95_lr_0.0001_/models"
+  # resume_model: "noisy-output/NTXent-baseline-noOT_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
+  
   # resume_model: "noisy-output/Nonoise-Maha-distance_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
   # resume_model: "rbf-output/1.0-rbf-Maha-Distance_data_AudioCaps_noise0_eps0.03_m0.95_lr_0.0001_/models"

@@ -89,6 +89,8 @@ class ASE(nn.Module):
         init_M = 0.5*(A+A.t())
         init_M = init_M + torch.eye(joint_embed).to(torch.device("cuda"))
         self.L = torch.nn.Parameter(init_M)
+        
+        # self.L = torch.eye(joint_embed)
 
     def encode_audio(self, audios):
         # audio_encoded = self.encode_audio(audios)

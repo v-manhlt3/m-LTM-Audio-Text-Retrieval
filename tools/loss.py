@@ -414,8 +414,6 @@ class MahalalobisL2(nn.Module):
         M = torch.nan_to_num(M)
         u, s, v =torch.svd(M)
         reg = torch.sum(s)
-        pos_eigen = s>0
-        small_eigen = s<1
 
         # if not self.use_cosine:
             # Mahanalobis distance
@@ -435,7 +433,7 @@ class MahalalobisL2(nn.Module):
         wloss = torch.sum(wloss)
 
         # mmd_reg = self.mmd_reg(audio_emb, text_emb)
-        mmd_reg = mix_rbf_mmd2(audio_emb, text_emb, sigma_list)
+        # mmd_reg = mix_rbf_mmd2(audio_emb, text_emb, sigma_list)
         # loss = wloss + self.reg*torch.min(reg-30, torch.tensor(0))
         # loss = wloss + self.reg*reg
         # loss = wloss + mmd_reg
@@ -488,12 +486,3 @@ class MMDLoss(nn.Module):
         YY = K[X_size:, X_size:].mean()
         return XX - 2 * XY + YY
     
-mmdloss = MMDLoss()
-
-a = torch.zeros(100, 200)
-b = torch.ones(100, 200)
-
-mmd1 = mmdloss(a,b)
-mmd2 = mix_rbf_mmd2(a,b,sigma_list)
-print("mmd1 : ", mmd1)
-print("mmd2: ", mmd2)

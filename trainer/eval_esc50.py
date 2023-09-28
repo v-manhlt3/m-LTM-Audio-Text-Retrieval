@@ -1,7 +1,7 @@
 import torch
 import webdataset as wds
-from models.ASE_model import ASE
-# from models.ASE_model_lowrank import ASE
+# from models.ASE_model import ASE
+from models.ASE_model_lowrank import ASE
 import os
 import argparse
 import json
@@ -26,7 +26,7 @@ def eval_zeroshot_audio_event(config):
     best_ckpt_a2t = torch.load(config.path.resume_model + "/a2t_best_model.pth")
     model.load_state_dict(best_ckpt_a2t['model'])
     model.eval()
-    # L = model.L
+    L = model.L
     # all_text_features = []
     all_audio_features = []
     labels = []
@@ -64,11 +64,11 @@ def eval_zeroshot_audio_event(config):
         M_dist = 1 - M_dist
 
         # M = torch.diag(L)
-        # M = L
-        # pairwise_dist = all_audio_features.unsqueeze(1).repeat(1,all_caption_features.size(0),1) - all_caption_features.unsqueeze(0).repeat(all_audio_features.size(0), 1,1)
-        # t_pairwise_dist = pairwise_dist.transpose(1,2)
-        # M_dist = torch.einsum("ijk,ikj,kk->ij", pairwise_dist.float(), t_pairwise_dist.float(), M.float())
-        # M_dist = torch.sqrt(M_dist)
+        M = L
+        pairwise_dist = all_audio_features.unsqueeze(1).repeat(1,all_caption_features.size(0),1) - all_caption_features.unsqueeze(0).repeat(all_audio_features.size(0), 1,1)
+        t_pairwise_dist = pairwise_dist.transpose(1,2)
+        M_dist = torch.einsum("ijk,ikj,kk->ij", pairwise_dist.float(), t_pairwise_dist.float(), M.float())
+        M_dist = torch.sqrt(M_dist)
 
         M_dist = M_dist / M_dist.max()
         d = ot.sinkhorn(a,b,M_dist, reg=0.05, numItermax=10).cpu()

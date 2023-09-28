@@ -18,6 +18,7 @@ import ot
 from tqdm import tqdm
 import pylab as pl
 import seaborn as sns
+from tools.quality_eval import get_t2a_ranking
 
 
 def setup_seed(seed):
@@ -30,20 +31,6 @@ def setup_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
-def kernel_distance(x,y):
-    k_xx = torch.pow(x@x.t(), 2)
-    k_yy = torch.pow(y@y.t(), 2)
-    k_xy = 2*torch.pow(x@y.t(), 2)
-    sim = torch.exp(-0.5*(k_xx + k_yy - k_xy))
-    return sim
-
-def gaussian_dotprod_kernel(x, y):
-    dist = torch.zeros(x.size(0), y.size(0)).to(x.device)
-    for i in range(dist.size(0)):
-        for j in range(dist.size(1)):
-            dist[i,j] = kernel_distance(x[i], y[j])
-    return dist
 
 
 class AverageMeter(object):
@@ -209,6 +196,7 @@ def t2a(audio_embs, cap_embs, return_ranks=False, use_ot=False, use_cosine=True)
             ranks[5 * index + i] = np.where(inds[i] == index)[0][0]
             top1[5 * index + i] = inds[i][0]
 
+    
     # compute metrics
     r1 = 100.0 * len(np.where(ranks < 1)[0]) / len(ranks)
     r5 = 100.0 * len(np.where(ranks < 5)[0]) / len(ranks)
@@ -228,6 +216,9 @@ def a2t_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False)
         audio = [audio_embs[i] for i in range(0, len(audio_embs), 5)]
     else:
         audio = audio_embs
+        
+    
+    # cap_embs = [cap_embs[i] for i in range(0, len(cap_embs), 5) ]
 
     rank_list = []
 
@@ -256,7 +247,7 @@ def a2t_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False)
         d_norm = torch.sum(d)
         d = d/d_norm
         d = d.cpu().numpy()
-
+    print("size of ranking matrix: ", d.shape)
     visual_plan(d)
     visual_true_plan(d)
     cap_embs = torch.tensor(cap_embs)
@@ -297,14 +288,18 @@ def a2t_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False)
     r10 = np.mean(preds < 10)*100
     r50 = np.mean(preds < 50)*100
     # print("kl divergence Audio to caption: ", crossentropy_measure(d, True, use_cosine))
-    crossentropy = crossentropy_measure(d, True, use_ot)
-    return r1, r5, r10, r50, medr, meanr, crossentropy
+    return r1, r5, r10, r50, medr, meanr
 
 def t2a_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False):
     if not train_data:
         audio = [audio_embs[i] for i in range(0, len(audio_embs), 5)]
     else:
         audio = audio_embs
+    # audio = [audio_embs[i] for i in range(0, len(audio_embs))]
+    # print("audio embs size: ", audio_embs.shape)
+    # print("audio size: ", len(audio))
+    # print("cap embs size: ", cap_embs.shape)
+    # print("*"*70)
     rank_list = []
     # print(audio_embs.shape)
     # print(cap_embs.shape)
@@ -331,48 +326,45 @@ def t2a_ot(audio_embs, cap_embs, use_ot=True, use_cosine=True, train_data=False)
         d_norm = torch.sum(d)
         d = d/d_norm
         d = d.cpu().numpy()
-
+    rank_d = []
+    print("[T2A] size of ranking matrix: ", d.shape)
+    print("size of ranking matrix: ", d.shape)
+    visual_plan(d)
+    visual_true_plan(d)
     for index in range(len(audio)):
         if not train_data:
             for i in range(5*index, 5*index+5, 1):
                 inds = np.argsort(d[i])[::-1]
                 rank = np.where(inds==index)[0][0]
+                rank_d.append(inds)
                 rank_list.append(rank)
         else:
             inds = np.argsort(d[index])[::-1]
+            rank_d.append(inds)
             rank = np.where(inds==index)[0][0]
             rank_list.append(rank)
-        
+    
     preds = np.array(rank_list)
+    rank_d = np.array(rank_d)
+    # print("matrix d: ", d.shape)
+    # print("preds shape: ", preds.shape)
+    # r1_inds = preds<1
+    # caps_r1_inds = np.where(preds<1)[0]
+    # r1_d = d[r1_inds]
+    # print(preds[:10])
+    # print("r1_d shape: ", r1_d.shape)
+    # print(caps_r1_inds[:5])
+    # get_t2a_ranking(rank_d, preds, "data/AudioCaps/hdf5s/test/test.h5", "tools/NTXent-csv")
+
     medr = np.floor(np.median(preds)) + 1
     meanr = preds.mean() + 1
     r1 = np.mean(preds < 1)*100
     r5 = np.mean(preds < 5)*100
     r10 = np.mean(preds < 10)*100
     r50 = np.mean(preds < 50)*100
-    crossentropy = crossentropy_measure(d, False, use_ot)
-    return r1, r5, r10, r50, medr, meanr, crossentropy
+    # crossentropy = crossentropy_measure(d, False, use_ot)
+    return r1, r5, r10, r50, medr, meanr
 
-
-def crossentropy_measure(pi_star, audio2text=False, use_ot=False):
-    pi_star = torch.tensor(pi_star)
-    pi_hat = torch.zeros(pi_star.size()).to(pi_star.device)
-    
-    if audio2text:
-        # size of pi_star: [#audio, #caption=5*#audio]
-        for i in range(pi_hat.size(0)):
-            pi_hat[i, 5*i:5*i+5] = 1
-    else:
-        for i in range(pi_hat.size(1)):
-            pi_hat[5*i:5*i+5, i] = 1
-    pi_hat = pi_hat/(pi_star.size(0)*pi_star.size(1))
-    # pi_hat = torch.exp(pi_hat)
-    # pi_hat_norm = torch.sum(pi_hat)
-    # pi_hat = pi_hat / pi_hat_norm
-    kl = (-1)*torch.mul(pi_hat, torch.log(pi_star))
-    kl = torch.sum(kl)
-    # print(kl)
-    return kl
 
 
 def a2t_ot_kernel(audio_embs, cap_embs, M,use_ot=True, use_cosine=True, train_data=False):
@@ -409,7 +401,7 @@ def a2t_ot_kernel(audio_embs, cap_embs, M,use_ot=True, use_cosine=True, train_da
     M_dist = M_dist/M_dist.max()
 
     if use_ot:
-        d = ot.sinkhorn(a,b,M_dist, reg=0.05, numItermax=100).cpu().numpy()
+        d = ot.sinkhorn(a,b,M_dist, reg=0.03, numItermax=10).cpu().numpy()
         # print("audio to text OT:")
         # print(torch.argmax(torch.tensor(d[:10,:])))
     else:
@@ -447,8 +439,8 @@ def a2t_ot_kernel(audio_embs, cap_embs, M,use_ot=True, use_cosine=True, train_da
     r5 = np.mean(preds < 5)*100
     r10 = np.mean(preds < 10)*100
     r50 = np.mean(preds < 50)*100
-    crossentropy = crossentropy_measure(d, True, use_ot)
-    return r1, r5, r10, r50, medr, meanr, crossentropy
+    # crossentropy = crossentropy_measure(d, True, use_ot)
+    return r1, r5, r10, r50, medr, meanr
 
 
 def t2a_ot_kernel(audio_embs, cap_embs, M, use_ot=True, use_cosine=True, train_data=False):
@@ -487,51 +479,53 @@ def t2a_ot_kernel(audio_embs, cap_embs, M, use_ot=True, use_cosine=True, train_d
 
     if use_ot:  
         # d = ot.partial.entropic_partial_wasserstein(a,b,M_dist, reg=0.04, m=0.94, numItermax=20)
-        d = ot.sinkhorn(a,b,M_dist, reg=0.05, numItermax=100).cpu().numpy() #[#cap_embs, #audio]
-        # print("text to audio OT:")
-        # # print(d[:10,:])
-        # print(torch.argmin(M_dist[:10,:], dim=-1))
-        # print(torch.min(M_dist[:10,:], dim=-1))
-        # print("-"*60)
-        # print(torch.argmax(M_dist[:10,:], dim=-1))
-        # print(torch.max(M_dist[:10,:], dim=-1))
-        # print(torch.argmax(torch.from_numpy(d[:10,:]), dim=-1))
-        # print(torch.max(torch.from_numpy(d[:10,:]), dim=-1))
+        d = ot.sinkhorn(a,b,M_dist, reg=0.03, numItermax=10).cpu().numpy() #[#cap_embs, #audio]
     else:
         d = util.cos_sim(torch.tensor(cap_embs), torch.tensor(audio))
         d = torch.exp(torch.tensor(d))
         d_norm = torch.sum(d)
         d = d/d_norm
         d = d.cpu().numpy()
-
+    rank_d = []
     for index in range(len(audio)):
         if not train_data:
             for i in range(5*index, 5*index+5, 1):
                 inds = np.argsort(d[i])[::-1]
                 rank = np.where(inds==index)[0][0]
+                rank_d.append(inds)
                 rank_list.append(rank)
         else:
             inds = np.argsort(d[index])[::-1]
             rank = np.where(inds==index)[0][0]
+            rank_d.append(inds)
             rank_list.append(rank)
+
         
     preds = np.array(rank_list)
+    rank_d = np.array(rank_d)
+    get_t2a_ranking(rank_d, preds, "data/AudioCaps/hdf5s/test/test.h5", "tools/Maha-csv")
+
     medr = np.floor(np.median(preds)) + 1
     meanr = preds.mean() + 1
     r1 = np.mean(preds < 1)*100
     r5 = np.mean(preds < 5)*100
     r10 = np.mean(preds < 10)*100
     r50 = np.mean(preds < 50)*100
-    crossentropy = crossentropy_measure(d, False, use_ot)
-    return r1, r5, r10, r50, medr, meanr, crossentropy
+    # crossentropy = crossentropy_measure(d, False, use_ot)
+    return r1, r5, r10, r50, medr, meanr
 
 def visual_plan(d):
     fig, ax = pl.subplots()
-    matrix = d[:10,:50]
+    # matrix = d[:10,:50]
+    matrix = d
+    # matrix = torch.from_numpy(matrix)
+    # matrix = torch.nn.functional.softmax(matrix, dim=-1).detach().numpy()
     
-    index = [i for i in range(0,50,5)]
-    matrix = matrix[:, index]
-    pl.matshow(matrix)
+    # index = [i for i in range(0,50,5)]
+    # index = [i for i in range(d.shape[0])]
+    # matrix = matrix[:, index]
+    pl.matshow(matrix[:30,:30])
+    # ax = sns.heatmap(matrix)
     pl.xlabel("Caption", fontsize=20)
     pl.ylabel("Audio", fontsize=20)
     pl.savefig("cosine-ot.png")
@@ -540,13 +534,17 @@ def visual_true_plan(d):
     true_pi = torch.zeros(d.shape[0], d.shape[1])
     for i in range(d.shape[0]):
         true_pi[i, i*5:i*5+5]=1
+        # true_pi[i,i]=1/d.shape[0]
     true_pi = true_pi/(d.shape[0]*d.shape[1])
     true_pi = true_pi.cpu().numpy()
 
-    matrix = true_pi[:10,:50]
+    # matrix = true_pi[:10,:50]
+    matrix = true_pi[:30,:30]
     
-    index = [i for i in range(0,50,5)]
-    matrix = matrix[:, index]
+    # index = [i for i in range(0,50,5)]
+    index = [i for i in range(d.shape[0])]
+    # matrix = matrix[:, index]
+    matrix = true_pi[:30,:30]
     pl.matshow(matrix)
     # pl.colorbar()
     pl.xlabel("Caption",fontsize=20)

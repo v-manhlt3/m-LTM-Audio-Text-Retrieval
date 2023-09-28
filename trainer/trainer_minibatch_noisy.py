@@ -35,8 +35,8 @@ def train(config):
                                              config.training.m,
                                              config.training.lr)
 
-    log_output_dir = Path('rbf-output', folder_name, 'logging')
-    model_output_dir = Path('rbf-output', folder_name, 'models')
+    log_output_dir = Path('noisy-output', folder_name, 'logging')
+    model_output_dir = Path('noisy-output', folder_name, 'models')
     log_output_dir.mkdir(parents=True, exist_ok=True)
     model_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -185,11 +185,6 @@ def train(config):
     # Training done, evaluate on evaluation set
     main_logger.info('-'*90)
     main_logger.info('Training done. Start evaluating.')
-    best_checkpoint_a2t = torch.load(str(model_output_dir) + '/a2t_best_model.pth')
-    model.load_state_dict(best_checkpoint_a2t['model'])
-    best_epoch_a2t = best_checkpoint_a2t['epoch']
-    main_logger.info(f'Best checkpoint (Audio-to-caption) occurred in {best_epoch_a2t} th epoch.')
-    validate_a2t(test_loader, model, device, use_ot=config.training.use_ot,  use_cosine=config.training.use_cosine)
 
     best_checkpoint_t2a = torch.load(str(model_output_dir) + '/t2a_best_model.pth')
     model.load_state_dict(best_checkpoint_t2a['model'])
@@ -198,6 +193,20 @@ def train(config):
     validate_t2a(test_loader, model, device, use_ot=config.training.use_ot,  use_cosine=config.training.use_cosine)
     main_logger.info('Evaluation done.')
     writer.close()
+
+    best_checkpoint_a2t = torch.load(str(model_output_dir) + '/a2t_best_model.pth')
+    model.load_state_dict(best_checkpoint_a2t['model'])
+    best_epoch_a2t = best_checkpoint_a2t['epoch']
+    main_logger.info(f'Best checkpoint (Audio-to-caption) occurred in {best_epoch_a2t} th epoch.')
+    validate_a2t(test_loader, model, device, use_ot=config.training.use_ot,  use_cosine=config.training.use_cosine)
+
+    # best_checkpoint_t2a = torch.load(str(model_output_dir) + '/t2a_best_model.pth')
+    # model.load_state_dict(best_checkpoint_t2a['model'])
+    # best_epoch_t2a = best_checkpoint_t2a['epoch']
+    # main_logger.info(f'Best checkpoint (Caption-to-audio) occurred in {best_epoch_t2a} th epoch.')
+    # validate_t2a(test_loader, model, device, use_ot=config.training.use_ot,  use_cosine=config.training.use_cosine)
+    # main_logger.info('Evaluation done.')
+    # writer.close()
 
 
 def validate(data_loader, model, device, writer, epoch, use_ot=False, use_cosine=True):
@@ -337,7 +346,7 @@ def validate_a2t(data_loader, model, device, use_ot, use_cosine):
 
         # evaluate audio to text retrieval
         # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, False,use_ot, use_cosine)
-        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a,_ = a2t_ot(audio_embs, cap_embs,use_ot, use_cosine)
+        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t_ot(audio_embs, cap_embs,use_ot, use_cosine)
         a2t_metrics['r1'] += r1_a
         a2t_metrics['r5'] += r5_a
         a2t_metrics['r10'] += r10_a
@@ -375,7 +384,7 @@ def validate_t2a(data_loader, model, device, use_ot, use_cosine):
 
         # evaluate text to audio retrieval
         # r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, False,use_ot, use_cosine)
-        r1, r5, r10, r50, medr, meanr,_ = t2a_ot(audio_embs, cap_embs,use_ot, use_cosine)
+        r1, r5, r10, r50, medr, meanr = t2a_ot(audio_embs, cap_embs,use_ot, use_cosine)
         t2a_metrics['r1'] += r1
         t2a_metrics['r5'] += r5
         t2a_metrics['r10'] += r10
