@@ -8,9 +8,10 @@ import os
 import argparse
 import torch
 # from trainer.trainer_OT import train
+# from trainer.trainer_minibatch_noisy import train
+
 # from trainer.trainer_minibatch import train
-from trainer.trainer_minibatch_noisy import train
-# from trainer.trainer_minibatch_Maha import train
+from trainer.trainer_minibatch_Maha import train
 from tools.config_loader import get_config
 
 

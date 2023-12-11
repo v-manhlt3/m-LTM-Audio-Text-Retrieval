@@ -125,25 +125,25 @@ def collate_fn(batch_data):
     return wavs_tensor, captions, audio_ids, indexs
 
 
-# def get_dataloader(split, config):
-#     dataset = AudioCaptionDataset(config.dataset, split)
-#     if split == 'train':
-#         shuffle = True
-#         drop_last = True
-#     else:
-#         shuffle = False
-#         drop_last = False
+def get_dataloader(split, config, dataset):
+    dataset = AudioCaptionDataset2(dataset, split)
+    if split == 'train':
+        shuffle = True
+        drop_last = True
+    else:
+        shuffle = False
+        drop_last = False
 
-#     return DataLoader(dataset=dataset,
-#                       batch_size=config.data.batch_size,
-#                       shuffle=shuffle,
-#                       drop_last=drop_last,
-#                       num_workers=config.data.num_workers,
-#                       collate_fn=collate_fn)
+    return DataLoader(dataset=dataset,
+                      batch_size=config.data.batch_size,
+                      shuffle=shuffle,
+                      drop_last=drop_last,
+                      num_workers=config.data.num_workers,
+                      collate_fn=collate_fn)
 
 
-def get_dataloader2(split, config):
-    dataset = AudioCaptionDataset2(config.dataset, split, config.training.noise_p)
+def get_dataloader2(split, config, dataset):
+    dataset = AudioCaptionDataset2(dataset, split, config.training.noise_p)
     if split == 'train':
         shuffle = True
         drop_last = True

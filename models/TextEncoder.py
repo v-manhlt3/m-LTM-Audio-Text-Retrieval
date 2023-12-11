@@ -33,13 +33,13 @@ class BertEncoder(nn.Module):
             for name, param in self.bert_encoder.named_parameters():
                 param.requires_grad = False
 
-    def forward(self, captions):
+    def forward(self, input_ids, attention_mask):
         # device = next(self.parameters()).device
         device = torch.device('cuda')
-        tokenized = self.tokenizer(captions, add_special_tokens=True,
-                                   padding=True, return_tensors='pt')
-        input_ids = tokenized['input_ids'].to(device)
-        attention_mask = tokenized['attention_mask'].to(device)
+        # tokenized = self.tokenizer(captions, add_special_tokens=True,
+        #                            padding=True, return_tensors='pt')
+        # input_ids = tokenized['input_ids'].to(device)
+        # attention_mask = tokenized['attention_mask'].to(device)
         output = self.bert_encoder(input_ids=input_ids,
                                    attention_mask=attention_mask)[0]
 

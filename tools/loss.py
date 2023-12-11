@@ -108,11 +108,11 @@ class BiDirectionalRankingLoss(nn.Module):
 
 class NTXent(nn.Module):
 
-    def __init__(self, temperature=0.07, noise_p=0.1):
+    def __init__(self, temperature=0.07, epsilon=0.1):
         super(NTXent, self).__init__()
         self.loss = nn.LogSoftmax(dim=1)
         self.tau = temperature
-        self.noise_p = noise_p
+        self.epsilon = epsilon
 
     def forward(self, audio_embeds, text_embeds, labels):
 
@@ -128,18 +128,17 @@ class NTXent(nn.Module):
 
         a2t_loss = - self.loss(a2t).masked_fill(mask, 0).diag().mean()
         t2a_loss = - self.loss(t2a).masked_fill(mask, 0).diag().mean()
-        audio_pairwise_dist = (-2)*torch.arccos(torch.clamp(audio_embeds@audio_embeds.transpose(-1, -2), -1 + eps, 1 - eps))
-        audio_pairwise_dist = torch.exp(audio_pairwise_dist)*(torch.ones(batch_size, batch_size)- torch.eye(batch_size)).to(audio_embeds.device)
-        audio_uni = torch.log(torch.sum(audio_pairwise_dist)/(2*batch_size))    
+        
+        prob_a2t = torch.nn.functional.softmax(a2t, dim=-1)
+        ent_a2t = torch.mean(torch.sum(prob_a2t*torch.log(prob_a2t), dim=-1))
+        
+        prob_t2a = torch.nn.functional.softmax(t2a, dim=-1)
+        ent_t2a = torch.mean(torch.sum(prob_t2a*torch.log(prob_t2a), dim=-1))
 
-
-        text_pairwise_dist =  (-2)*torch.arccos(torch.clamp(text_embeds@text_embeds.transpose(-1, -2), -1 + eps, 1 - eps))
-        text_pairwise_dist = torch.exp(text_pairwise_dist)*(torch.ones(batch_size, batch_size)- torch.eye(batch_size)).to(audio_embeds.device)
-        text_uni = torch.log(torch.sum(text_pairwise_dist)/(2*batch_size))
-
+        ent_reg = self.epsilon*(ent_a2t + ent_t2a)
+        # print("Entropy reg: ", ent_reg)
+        # loss = 0.5 * a2t_loss + 0.5 * t2a_loss - ent_reg
         loss = 0.5 * a2t_loss + 0.5 * t2a_loss
-        print("audio uniform: {}------ cap uniform: {}".format(audio_uni, text_uni))
-        # print("Loss: ", loss)
 
         return loss
 
@@ -386,7 +385,7 @@ class MahalalobisL(nn.Module):
 
 class MahalalobisL2(nn.Module):
 
-    def __init__(self, epsilon=0.05, use_cosine=True, reg=0.1, m=0.95):
+    def __init__(self, epsilon=0.05, use_cosine=True, reg=0.1, m=0.95, L=None):
         super(MahalalobisL2, self).__init__()
         self.epsilon = epsilon
         self.use_cosine = use_cosine
@@ -395,9 +394,12 @@ class MahalalobisL2(nn.Module):
         self.mmd_reg = MMDLoss()
         self.mmd_reg.cuda()
         self.m =m
+        self.L = L
+        # self.
         # self.metric = metric
-    
-    def forward(self, audio_emb, text_emb, L):
+    def set_L(self, L):
+        self.L =L
+    def forward(self, audio_emb, text_emb):
         batch_size = audio_emb.size(0)
         a = torch.ones(batch_size)/batch_size
         b = torch.ones(batch_size)/batch_size
@@ -410,42 +412,33 @@ class MahalalobisL2(nn.Module):
         # diagonal matrix
         # L = torch.clamp(L, min=0)
         # M = torch.diag(L)
-        M = L
+        M = self.L
         M = torch.nan_to_num(M)
         u, s, v =torch.svd(M)
         reg = torch.sum(s)
 
         # if not self.use_cosine:
             # Mahanalobis distance
-        pairwise_dist = audio_emb.unsqueeze(0).repeat(audio_emb.size(0),1,1) - text_emb.unsqueeze(1).repeat(1, text_emb.size(0), 1)
+        audio_matrix = audio_emb.unsqueeze(0).repeat(audio_emb.size(0),1,1)
+        text_matrix = text_emb.unsqueeze(1).repeat(1, text_emb.size(0), 1)
+        # print("Audio matrix shape: ", audio_matrix.shape)
+        # print("text matrix shape: ", text_matrix.shape)
+        pairwise_dist = audio_matrix - text_matrix
         t_pairwise_dist = pairwise_dist.transpose(1,2)
+        # print("Pairwise dist shape: ", pairwise_dist.shape)
         M_dist = torch.einsum("ijk,ikj,kk->ij", pairwise_dist, t_pairwise_dist, M)
         M_dist = torch.sqrt(M_dist)
         M_dist = M_dist/M_dist.max()
 
 
-        pi = ot.sinkhorn(a,b,M_dist, reg=self.epsilon, numItermax=100)
-        # pi = ot.partial.entropic_partial_wasserstein(a,b,M_dist, reg=self.epsilon, m=self.m, numItermax=10)
-
-        # audio_reg = ot.sinkhorn2(a,b,M_dist_a, reg=0.1, numItermax=10)
-        # text_reg = ot.sinkhorn2(a,b,M_dist_t, reg=0.1, numItermax=10)
+        pi = ot.sinkhorn(a,b,M_dist, reg=self.epsilon)
+        # print("Pi: ", pi.shape)
         wloss = -pi_hat*torch.log(pi)
         wloss = torch.sum(wloss)
-
-        # mmd_reg = self.mmd_reg(audio_emb, text_emb)
-        # mmd_reg = mix_rbf_mmd2(audio_emb, text_emb, sigma_list)
-        # loss = wloss + self.reg*torch.min(reg-30, torch.tensor(0))
-        # loss = wloss + self.reg*reg
-        # loss = wloss + mmd_reg
-        loss = wloss + self.reg*reg
         # print("Wloss: ", wloss)
-        # print("eigen reg: ", reg)
-        # print("mmd reg: ", mmd_reg)
-        # print("min eigen: ", torch.min(s))
-        # print("max eigen: ", torch.max(s))
-        # print("positive eigen: ", torch.sum(pos_eigen))
-        # print("small eigen: ", torch.sum(small_eigen))
-        # print("*"*70)
+
+        loss = wloss + self.reg*reg
+        loss = wloss
 
         return loss
 

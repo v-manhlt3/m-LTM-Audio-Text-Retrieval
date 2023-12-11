@@ -98,13 +98,14 @@ class ASE(nn.Module):
         # audio_embed = l2norm(audio_embed)
         return self.audio_enc(audios)
 
-    def encode_text(self, captions):
+    def encode_text(self, input_ids, attention_mask):
         # caption_encoded = self.text_enc(captions)
         # caption_embed = self.text_linear(caption_encoded)
         # caption_embed = l2norm(caption_embed)
-        return self.text_enc(captions)
+        return self.text_enc(input_ids, attention_mask)
 
-    def forward(self, audios, captions):
+    def forward(self, audios, input_ids, attention_mask):
+        # print("audio device: ", audios.device)
         if audios == None:
             audio_encoded = None
             audio_embed = None
@@ -116,15 +117,19 @@ class ASE(nn.Module):
             audio_embed = l2norm(audio_embed)
 
         
-        if captions == None:
-            caption_encoded = None
+        if input_ids == None:
+            input_ids = None
             caption_embed = None
         else:
-            caption_encoded = self.encode_text(captions)
+            caption_encoded = self.encode_text(input_ids, attention_mask)
             caption_embed = self.text_linear(caption_encoded)
 
             # caption2 = self.text_linear(caption_encoded.clone().detach())
             caption_embed = l2norm(caption_embed)
 
-
+        # print("Audio embed device: ", audio_embed.device)
+        # print("caption embed device: ", caption_embed.device)
+        # print("Audio embed shape: ", audio_embed.shape)
+        # print("caption embed shape: ", caption_embed.shape)
+        # print("*"*50)
         return audio_embed, caption_embed

@@ -503,7 +503,7 @@ def t2a_ot_kernel(audio_embs, cap_embs, M, use_ot=True, use_cosine=True, train_d
         
     preds = np.array(rank_list)
     rank_d = np.array(rank_d)
-    get_t2a_ranking(rank_d, preds, "data/AudioCaps/hdf5s/test/test.h5", "tools/Maha-csv")
+    # get_t2a_ranking(rank_d, preds, "data/AudioCaps/hdf5s/test/test.h5", "tools/Maha-csv")
 
     medr = np.floor(np.median(preds)) + 1
     meanr = preds.mean() + 1
