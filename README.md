@@ -1,7 +1,7 @@
 # Deep Audio-Text Retrieval through the Lens of Transportation
 
 ## Cite
-
+```
 @inproceedings{
 luong2024revisiting,
 title={Revisiting Deep Audio-Text Retrieval Through the Lens of Transportation},
