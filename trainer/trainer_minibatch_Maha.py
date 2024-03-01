@@ -14,11 +14,9 @@ from pathlib import Path
 from loguru import logger
 from pprint import PrettyPrinter
 from torch.utils.tensorboard import SummaryWriter
-from tools.utils import setup_seed, AverageMeter, a2t_ot, t2a_ot, t2a, a2t, t2a_ot_kernel, a2t_ot_kernel
-from tools.loss import BiDirectionalRankingLoss, TripletLoss, NTXent, WeightTriplet, \
-                        POTLoss, OTLoss, MahalalobisL, MahalalobisL2
-from models.ASE_model_lowrank import ASE
-# from models.ASE_model_sliceW import ASE
+from tools.utils import setup_seed, AverageMeter, a2t_ot, t2a_ot, t2a, a2t
+from tools.loss import BiDirectionalRankingLoss, TripletLoss, NTXent, WeightTriplet,  MahalalobisLoss
+from models.ASE_model_Maha import ASE
 from data_handling.DataLoader import get_dataloader2
 from data_handling.Pretrained_dataset import pretrain_dataloader
 from models.BERT_Config import MODELS
@@ -39,8 +37,8 @@ def train(config):
                                              config.training.m,
                                              config.training.lr)
 
-    log_output_dir = Path('rebuttal-exp', folder_name, 'logging')
-    model_output_dir = Path('rebuttal-exp', folder_name, 'models')
+    log_output_dir = Path('exp-outputs', folder_name, 'logging')
+    model_output_dir = Path('exp-outputs', folder_name, 'models')
     log_output_dir.mkdir(parents=True, exist_ok=True)
     model_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -65,34 +63,24 @@ def train(config):
     device, device_name = ('cuda',
                            torch.cuda.get_device_name(torch.cuda.current_device())) \
         if torch.cuda.is_available() else ('cpu', platform.processor())
-    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     main_logger.info(f'Process on {device_name}')
-
-    
-    # tokenizer =  MODELS[config.bert_encoder.type][1].from_pretrained(config.bert_encoder.type)
-    # set up optimizer and loss
 
     if config.training.loss == 'triplet':
         criterion = TripletLoss(margin=config.training.margin)
     elif config.training.loss == 'ntxent':
         criterion = NTXent()
     else:
-        criterion = MahalalobisL2(epsilon=config.training.epsilon, reg=config.training.reg,
-                            use_cosine=config.training.use_cosine, m=config.training.m)
+        criterion = MahalalobisLoss(epsilon=config.training.epsilon, reg=config.training.reg, m=config.training.m, pot=config.training.use_pot)
     model = ASE(config)
     if torch.cuda.device_count()>1:
-        # print("*"*50)
-        # print("number of gpu: ", torch.cuda.device_count())
         model = torch.nn.DataParallel(model)
         criterion = torch.nn.DataParallel(criterion)
-        # model = DDP(model, device_ids=[0,1])
+
     model = model.to(device)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=config.training.lr)
-    # opt_l = torch.optim.Adam(params=[L.data], lr=10)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
     # set up data loaders
     train_loader = get_dataloader2('train', config, config.dataset)
-    # train_audioSet = pretrain_dataloader(config)
     val_loader = get_dataloader2('val', config, config.dataset)
     test_loader = get_dataloader2('test', config, config.dataset)
 
@@ -113,8 +101,6 @@ def train(config):
     recall_sum_t2a = []
     num_test_samples = 958
 
-    # r_sum_a2t, r_sum_t2a = validate(val_loader, model, device, writer, -1, model.L,use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
-    # noise_p = config.training.noise_p
     for epoch in range(ep, config.training.epochs + 1):
         main_logger.info(f'Training for epoch [{epoch}]')
 
@@ -123,7 +109,6 @@ def train(config):
         model.train()
 
         for batch_id, batch_data in tqdm(enumerate(train_loader), total=len(train_loader)):
-        # for batch_id, batch_data in tqdm(enumerate(train_audioSet), total=len(train_audioSet)):
 
             audios, captions, audio_ids, _ = batch_data
             # move data to GPU
@@ -133,30 +118,18 @@ def train(config):
             tokenized = tokenizer(captions, add_special_tokens=True,padding=True, return_tensors='pt')
             input_ids = tokenized['input_ids'].to(device)
             attention_mask = tokenized['attention_mask'].to(device)
-            # # new exp
-            # print("model device", model.module.device)
             audio_embeds, caption_embeds = model(audios, input_ids, attention_mask)
-            # if batch_id%10!=0:
-            #     M = model.L.detach()
-            # else:
-            # print("audio embed: ", audio_embeds.shape)
-            # print("caption embed: ", caption_embeds.shape)
-            if torch.cuda.device_count()>1:
-                M = model.module.L
-                criterion.module.L=M
-            else:
-                M = model.L
-                criterion.L= M
-            loss = criterion(audio_embeds, caption_embeds)
+            
+            M = model.L
+            loss = criterion(audio_embeds, caption_embeds, M)
             loss = torch.mean(loss)
-            # print("loss: ", loss)
-            # print("after computing loss")
+
             optimizer.zero_grad()
             loss.backward()
-            # print("after backward")
             torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.clip_grad)
             optimizer.step()
-            # constraint matrix L
+
+            # constraint matrix L#################
             if torch.cuda.device_count()>1:
                 M = model.module.L
             else: 
@@ -165,11 +138,9 @@ def train(config):
             u, s, v =torch.svd(M)
             s = torch.clamp(s, min=0)
             M_constraint = u@torch.diag(s)@v.t()
-            if torch.cuda.device_count()>1:
-                model.module.L.data = M_constraint
-            else:
-                model.L.data = M_constraint
-
+            model.L.data = M_constraint
+            ######################################
+            
             epoch_loss.update(loss.cpu().item())
         
         small_eigen = s<1
@@ -234,7 +205,7 @@ def train(config):
     
 
 
-def validate(data_loader, model, device, writer, epoch, L, use_ot=False, use_cosine=True):
+def validate(data_loader, model, device, writer, epoch, M, use_ot=False, use_cosine=True):
     val_logger = logger.bind(indent=1)
     model.eval()
     t2a_metrics = {"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
@@ -262,11 +233,11 @@ def validate(data_loader, model, device, writer, epoch, L, use_ot=False, use_cos
             cap_embs[indexs] = caption_embeds.cpu().numpy()
         
         # M = torch.diag(L)
-        M = L
+        # M = L
         # evaluate text to audio retrieval
         # r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, False,use_ot, use_cosine)
         # r1, r5, r10, r50, medr, meanr, crossentropy_t2a  = t2a_ot(audio_embs, cap_embs, use_ot, use_cosine, M=M)
-        r1, r5, r10, r50, medr, meanr  = t2a_ot_kernel(audio_embs, cap_embs, M,use_ot, use_cosine)
+        r1, r5, r10, r50, medr, meanr  = t2a_ot(audio_embs, cap_embs, M)
         r_sum_t2a = r1 +r5 + r10
         t2a_metrics['r1'] += r1
         t2a_metrics['r5'] += r5
@@ -278,7 +249,7 @@ def validate(data_loader, model, device, writer, epoch, L, use_ot=False, use_cos
         # evaluate audio to text retrieval
         # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, False,use_ot, use_cosine)
         # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a, crossentropy_a2t = a2t_ot(audio_embs, cap_embs, use_ot, use_cosine)
-        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t_ot_kernel(audio_embs, cap_embs, M,use_ot, use_cosine)
+        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t_ot(audio_embs, cap_embs, M)
         r_sum_a2t = r1_a + r5_a + r10_a
 
         a2t_metrics['r1'] += r1_a
@@ -333,8 +304,7 @@ def validate_a2t(data_loader, model, device, use_ot, use_cosine, L):
 
         # evaluate audio to text retrieval
         # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, False,use_ot, use_cosine)
-        # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a,_ = a2t_ot(audio_embs, cap_embs,use_ot, use_cosine)
-        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t_ot_kernel(audio_embs, cap_embs, M,use_ot, use_cosine)
+        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t_ot(audio_embs, cap_embs, M,use_ot, use_cosine)
         a2t_metrics['r1'] += r1_a
         a2t_metrics['r5'] += r5_a
         a2t_metrics['r10'] += r10_a
@@ -381,8 +351,7 @@ def validate_t2a(data_loader, model, device, use_ot, use_cosine, L):
 
         # evaluate text to audio retrieval
         # r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, False,use_ot, use_cosine)
-        # r1, r5, r10, r50, medr, meanr,_ = t2a_ot(audio_embs, cap_embs,use_ot, use_cosine)
-        r1, r5, r10, r50, medr, meanr = t2a_ot_kernel(audio_embs, cap_embs, M,use_ot, use_cosine)
+        r1, r5, r10, r50, medr, meanr = t2a_ot(audio_embs, cap_embs, M,use_ot, use_cosine)
         t2a_metrics['r1'] += r1
         t2a_metrics['r5'] += r5
         t2a_metrics['r10'] += r10

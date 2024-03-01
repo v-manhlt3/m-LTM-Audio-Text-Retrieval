@@ -5,7 +5,15 @@ noisy-output/*
 rbf-output/*
 logs/*
 pretrained_models/*
-data/*
+data/AudioCaps/hdf5s/*
+data/AudioCaps/pickles/*
+data/AudioCaps/waveforms/*
+
+data/Clotho/hdf5s/*
+data/Clotho/pickles/*
+data/Clotho/waveforms/*
+
+
 ablation-output/*
 *.png
-rebuttal-exp/*
+exo-outputs/*

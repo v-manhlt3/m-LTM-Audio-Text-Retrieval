@@ -4,11 +4,11 @@
 # @E-mail  : x.mei@surrey.ac.uk
 
 from transformers import BertModel, BertTokenizer, GPT2Model, GPT2Tokenizer,\
-    RobertaModel, RobertaTokenizer, DistilBertModel, DistilBertTokenizer,\
-    CLIPTokenizer, CLIPTextModel
+    RobertaModel, RobertaTokenizer, DistilBertModel, DistilBertTokenizer
+    # CLIPTokenizer, CLIPTextModel
 
 MODELS = {
-    'openai/clip-vit-base-patch32': (CLIPTextModel, CLIPTokenizer, 512),
+    # 'openai/clip-vit-base-patch32': (CLIPTextModel, CLIPTokenizer, 512),
     'prajjwal1/bert-tiny': (BertModel, BertTokenizer, 128),
     'prajjwal1/bert-mini': (BertModel, BertTokenizer, 256),
     'prajjwal1/bert-small': (BertModel, BertTokenizer, 512),

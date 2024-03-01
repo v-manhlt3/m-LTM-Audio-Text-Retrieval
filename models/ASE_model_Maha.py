@@ -11,7 +11,7 @@ import numpy as np
 import torch.nn.functional as F
 from tools.utils import l2norm
 from models.AudioEncoder import Cnn10, ResNet38, Cnn14
-from models.TextEncoder2 import BertEncoder
+from models.TextEncoder import BertEncoder
 from models.BERT_Config import MODELS
 
 
@@ -81,67 +81,37 @@ class ASE(nn.Module):
                 nn.Linear(joint_embed * 2, joint_embed)
             )
 
+        #Gram matrix 
+        A = torch.rand(joint_embed, joint_embed).to(torch.device("cuda"))
+        init_M = 0.5*(A+A.t())
+        init_M = init_M + torch.eye(joint_embed).to(torch.device("cuda"))
+        self.L = torch.nn.Parameter(init_M)
+
+
     def encode_audio(self, audios):
-        # audio_encoded = self.encode_audio(audios)
-        # audio_embed = self.audio_linear(audio_encoded)
-        # audio_embed = l2norm(audio_embed)
         return self.audio_enc(audios)
 
-    def encode_text(self, captions):
-        # caption_encoded = self.text_enc(captions)
-        # caption_embed = self.text_linear(caption_encoded)
-        # caption_embed = l2norm(caption_embed)
-        return self.text_enc(captions)
+    def encode_text(self, input_ids, attention_mask):
+        return self.text_enc(input_ids, attention_mask)
 
-    def forward(self, audios, captions):
+    def forward(self, audios, input_ids, attention_mask):
         if audios == None:
             audio_encoded = None
             audio_embed = None
         else:
             audio_encoded = self.encode_audio(audios)     # batch x channel
             audio_embed = self.audio_linear(audio_encoded)
+
             audio_embed = l2norm(audio_embed)
-            # audio_embed2 = self.audio_linear(audio_encoded.detach())
-            # audio_embed2 = l2norm(audio_embed2)
+
         
-        if captions == None:
-            caption_encoded = None
+        if input_ids == None:
+            input_ids = None
             caption_embed = None
         else:
-            caption_encoded = self.encode_text(captions)
+            caption_encoded = self.encode_text(input_ids, attention_mask)
             caption_embed = self.text_linear(caption_encoded)
+
             caption_embed = l2norm(caption_embed)
-            # caption_embed2 = self.text_linear(caption_encoded.detach())
-            # caption_embed2 = l2norm(caption_embed2)
-        # audio_embed = self.audio_linear(audio_encoded)
-        # if self.l2:
-            # apply l2-norm on the embeddings
-        
-        # audio_embed = l2norm(audio_embed)
-        # caption_embed = l2norm(caption_embed)
 
         return audio_embed, caption_embed
-
-class Score(nn.Module):
-    def __init__(self, input_dim):
-        super().__init__()
-        self.layers = nn.Sequential(
-            nn.Linear(input_dim*2, 1024),
-            nn.LeakyReLU(),
-            nn.Linear(1024, 512),
-            nn.LeakyReLU(),
-            nn.Linear(512, 512),
-            nn.LeakyReLU(),
-            nn.Linear(512, 1),
-            nn.Sigmoid())
-
-        self.input_dim = input_dim
-
-    def forward(self, x, y):
-        x_ = x.view(1, x.size(0), x.size(1))
-        y_ = y.view(y.size(0), 1, y.size(1))
-
-        x_ = torch.broadcast_to(x_, (x.size(0), x.size(0), x.size(1)))
-        y_ = torch.broadcast_to(y_, (y.size(0), y.size(0), y.size(1)))
-        inputs = torch.concat((x_,y_), dim=-1)
-        return self.layers(inputs)

@@ -1,6 +1,6 @@
 mode: 'train'
 exp_name: 'exp'
-dataset: 'Clotho'
+dataset: 'AudioCaps'
 text_encoder: 'bert'
 joint_embed: 1024
 
@@ -20,7 +20,7 @@ cnn_encoder:
   freeze: Yes
 
 data:
-  batch_size: 100
+  batch_size: 128
   num_workers: 8
 
 training:
@@ -28,8 +28,8 @@ training:
   m: 0.95
   margin: 0.2
   freeze: No
-  loss:  ot # 'triplet', 'weight', 'contrastive', 'pot', 'ntxent', 'wloss', 'ot'
-  use_ot: True
+  loss:  ot # 'triplet', 'weight', 'contrastive', 'ot', 'ntxent'
+  use_pot: False
   reg: 0
   spec_augmentation: Yes
   epochs: 10
