@@ -23,4 +23,4 @@ export WANDB_API_KEY=6592275041b7ab5ee604a4c53c31241d83ff1512
 # python train.py -n CL-train-wavcaps -c rebuttal-wavcaps
 
 # python train.py -n AudioCaps-m-LTM -c rebuttal-settings
-python train.py -n test -c m-ltm-settings
+python train.py -n test2 -c m-ltm-settings

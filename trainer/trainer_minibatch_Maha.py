@@ -155,7 +155,7 @@ def train(config):
 
         # validation loop, validation after each epoch
         main_logger.info("Validating...")
-        r_sum_a2t, r_sum_t2a = validate(val_loader, model, device, writer, epoch, model.L,use_ot=config.training.use_ot, use_cosine=config.training.use_cosine)
+        r_sum_a2t, r_sum_t2a = validate(val_loader, model, device, writer, epoch, model.L)
 
         recall_sum_a2t.append(r_sum_a2t)
         recall_sum_t2a.append(r_sum_t2a)
@@ -186,10 +186,7 @@ def train(config):
     model.load_state_dict(best_checkpoint_t2a['model'])
     best_epoch_t2a = best_checkpoint_t2a['epoch']
     main_logger.info(f'Best checkpoint (Caption-to-audio) occurred in {best_epoch_t2a} th epoch.')
-    if torch.cuda.device_count()>1:
-        validate_t2a(test_loader, model, device, use_ot=config.training.use_ot,  use_cosine=config.training.use_cosine, L=model.module.L)
-    else:
-        validate_t2a(test_loader, model, device, use_ot=config.training.use_ot,  use_cosine=config.training.use_cosine, L=model.L)
+    validate_t2a(test_loader, model, device, L=model.L)
     main_logger.info('Evaluation done.')
     writer.close()
 
@@ -197,15 +194,12 @@ def train(config):
     model.load_state_dict(best_checkpoint_a2t['model'])
     best_epoch_a2t = best_checkpoint_a2t['epoch']
     main_logger.info(f'Best checkpoint (Audio-to-caption) occurred in {best_epoch_a2t} th epoch.')
-    if torch.cuda.device_count()>1:
-        validate_a2t(test_loader, model, device, use_ot=config.training.use_ot,  use_cosine=config.training.use_cosine, L=model.module.L)
-    else:
-        validate_a2t(test_loader, model, device, use_ot=config.training.use_ot,  use_cosine=config.training.use_cosine, L=model.L)
+    validate_a2t(test_loader, model, device, L=model.L)
 
     
 
 
-def validate(data_loader, model, device, writer, epoch, M, use_ot=False, use_cosine=True):
+def validate(data_loader, model, device, writer, epoch, M):
     val_logger = logger.bind(indent=1)
     model.eval()
     t2a_metrics = {"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
@@ -269,7 +263,7 @@ def validate(data_loader, model, device, writer, epoch, M, use_ot=False, use_cos
                          t2a_metrics['r1'], t2a_metrics['r5'], t2a_metrics['r10'], t2a_metrics['median'], t2a_metrics['mean']))
         return r_sum_a2t, r_sum_t2a
 
-def validate_a2t(data_loader, model, device, use_ot, use_cosine, L):
+def validate_a2t(data_loader, model, device, L):
     val_logger = logger.bind(indent=1)
     model.eval()
     a2t_metrics = {"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
@@ -279,20 +273,14 @@ def validate_a2t(data_loader, model, device, use_ot, use_cosine, L):
         audio_embs, cap_embs = None, None
         # M = torch.diag(L)
         M=L
-        pos_eigen = L>0
-        print("positive eigen: ", torch.sum(pos_eigen))
 
         for i, batch_data in tqdm(enumerate(data_loader), total=len(data_loader)):
             audios, captions, audio_ids, indexs = batch_data
-            # move data to GPU
             audios = audios.to(device)
-            # print(captions)
 
             tokenized = tokenizer(captions, add_special_tokens=True,padding=True, return_tensors='pt')
             input_ids = tokenized['input_ids'].to(device)
             attention_mask = tokenized['attention_mask'].to(device)
-            # # new exp
-            # print("model device", model.module.device)
             audio_embeds, caption_embeds = model(audios, input_ids, attention_mask)
 
             if audio_embs is None:
@@ -303,8 +291,7 @@ def validate_a2t(data_loader, model, device, use_ot, use_cosine, L):
             cap_embs[indexs] = caption_embeds.cpu().numpy()
 
         # evaluate audio to text retrieval
-        # r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t(audio_embs, cap_embs, False,use_ot, use_cosine)
-        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t_ot(audio_embs, cap_embs, M,use_ot, use_cosine)
+        r1_a, r5_a, r10_a, r50_a, medr_a, meanr_a = a2t_ot(audio_embs, cap_embs, M)
         a2t_metrics['r1'] += r1_a
         a2t_metrics['r5'] += r5_a
         a2t_metrics['r10'] += r10_a
@@ -316,7 +303,7 @@ def validate_a2t(data_loader, model, device, use_ot, use_cosine, L):
                         'r10: {:.4f}, medr: {:.4f}, meanr: {:.4f}'.format(
                         a2t_metrics['r1'], a2t_metrics['r5'], a2t_metrics['r10'], a2t_metrics['median'], a2t_metrics['mean']))
         
-def validate_t2a(data_loader, model, device, use_ot, use_cosine, L):
+def validate_t2a(data_loader, model, device, L):
     val_logger = logger.bind(indent=1)
     model.eval()
     t2a_metrics = {"r1":0, "r5":0, "r10":0, "mean":0, "median":0}
@@ -324,22 +311,17 @@ def validate_t2a(data_loader, model, device, use_ot, use_cosine, L):
     with torch.no_grad():
         # numpy array to keep all embeddings in the dataset
         audio_embs, cap_embs = None, None
-        # M = torch.diag(L)
         M = L
         pos_eigen = L>0
         print("positive eigen: ", torch.sum(pos_eigen))
 
         for i, batch_data in tqdm(enumerate(data_loader), total=len(data_loader)):
             audios, captions, audio_ids, indexs = batch_data
-            # move data to GPU
             audios = audios.to(device)
-            # print(captions)
 
             tokenized = tokenizer(captions, add_special_tokens=True,padding=True, return_tensors='pt')
             input_ids = tokenized['input_ids'].to(device)
             attention_mask = tokenized['attention_mask'].to(device)
-            # # new exp
-            # print("model device", model.module.device)
             audio_embeds, caption_embeds = model(audios, input_ids, attention_mask)
 
             if audio_embs is None:
@@ -350,8 +332,7 @@ def validate_t2a(data_loader, model, device, use_ot, use_cosine, L):
             cap_embs[indexs] = caption_embeds.cpu().numpy()
 
         # evaluate text to audio retrieval
-        # r1, r5, r10, r50, medr, meanr = t2a(audio_embs, cap_embs, False,use_ot, use_cosine)
-        r1, r5, r10, r50, medr, meanr = t2a_ot(audio_embs, cap_embs, M,use_ot, use_cosine)
+        r1, r5, r10, r50, medr, meanr = t2a_ot(audio_embs, cap_embs, M)
         t2a_metrics['r1'] += r1
         t2a_metrics['r5'] += r5
         t2a_metrics['r10'] += r10

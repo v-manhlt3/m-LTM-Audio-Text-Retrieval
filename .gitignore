@@ -16,4 +16,4 @@ data/Clotho/waveforms/*
 
 ablation-output/*
 *.png
-exo-outputs/*
+exp-outputs/*

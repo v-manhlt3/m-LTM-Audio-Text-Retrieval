@@ -32,7 +32,7 @@ training:
   use_pot: False
   reg: 0
   spec_augmentation: Yes
-  epochs: 10
+  epochs: 1
   lr: !!float 5e-5
   clip_grad: 2
   seed: 1997
