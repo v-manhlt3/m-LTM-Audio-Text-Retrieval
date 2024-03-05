@@ -9,11 +9,15 @@
 - Download AudioCaps and Clotho datasets. AudioCaps dataset can be downloaded at [link](https://github.com/XinhaoMei/ACT) and Clotho dataset can be downloaded at [link](https://zenodo.org/record/4783391#.YkRHxTx5_kk).
 - Unzip datasets and put wavefiles under ```data/AudioCaps/waveforms``` or ```data/Clotho/waveforms```
 
-## Data
-
-
 ## Training
+- The training config is in the setting folder ```settings/m-ltm-settings.yaml```
+- Set value of dataset parameter in the config file to etheir "AudioCaps" or "Clotho" to train model on AudioCaps or Clotho dataset.
+- Run experiments: ```python train.py -n [exp_name] -c m-ltm-settings ```
+
+
 ## Zeroshot evaluation
+- Download the test data of ESC50 from the [link](https://drive.google.com/file/d/19Nf52bXquC4t1yTZGJrz5HGor8v2CvJy/view?usp=sharing)
+- Run the evaluation: ``` python trainer/eval_esc50.py -c m-ltm-settings -p [pretrained model's folder]```
 
 ## Cite
 ```
@@ -26,3 +30,6 @@ year={2024},
 url={https://openreview.net/forum?id=l60EM8md3t}
 }
 ```
+
+## Acknowledgement
+- We use the model and training code from [On Metric Learning for Audio-Text Cross-Modal Retrieval](https://github.com/XinhaoMei/audio-text_retrieval) github with some modifications.

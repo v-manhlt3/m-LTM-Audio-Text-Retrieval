@@ -1,6 +1,6 @@
 mode: 'train'
 exp_name: 'exp'
-dataset: 'AudioCaps'
+dataset: 'AudioCaps' # or Clotho
 text_encoder: 'bert'
 joint_embed: 1024
 
@@ -20,7 +20,7 @@ cnn_encoder:
   freeze: Yes
 
 data:
-  batch_size: 128
+  batch_size: 256
   num_workers: 8
 
 training:
@@ -32,7 +32,7 @@ training:
   use_pot: False
   reg: 0
   spec_augmentation: Yes
-  epochs: 1
+  epochs: 10
   lr: !!float 5e-5
   clip_grad: 2
   seed: 1997
@@ -45,4 +45,4 @@ training:
 path:
   vocabulary: 'data/{}/pickles/words_list.p'
   word2vec: 'pretrained_models/w2v_all_vocabulary.model'
-  resume_model: "noisy-output/NTXent-baseline_data_AudioCaps_noise0_eps0.05_m0.95_lr_0.0001_/models"
+  resume_model: ""

@@ -11,7 +11,9 @@ import torch
 # from trainer.trainer_minibatch_noisy import train
 
 # from trainer.trainer_minibatch import train
-from trainer.trainer_minibatch_Maha import train
+# from trainer.trainer_minibatch_Maha import train
+from trainer.trainer_minibatch_Orliz import train
+
 from tools.config_loader import get_config
 
 

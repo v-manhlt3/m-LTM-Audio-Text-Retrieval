@@ -17,13 +17,13 @@ import matplotlib.pyplot as plt
 class_index_dict_path = 'data/ESC50_class_labels_indices_space.json'
 class_index_dict = {v: k for v, k in json.load(open(class_index_dict_path)).items()}
 
-def eval_zeroshot_audio_event(config):
+def eval_zeroshot_audio_event(config, pretrained_model):
 
     test_dataloader = get_dataloader_esc(config)
     model = ASE(config)
     model = model.to(torch.device("cuda"))
 
-    best_ckpt_a2t = torch.load(config.path.resume_model + "/a2t_best_model.pth")
+    best_ckpt_a2t = torch.load(pretrained_model + "/a2t_best_model.pth")
     model.load_state_dict(best_ckpt_a2t['model'])
     model.eval()
     L = model.L
@@ -34,7 +34,7 @@ def eval_zeroshot_audio_event(config):
 
     _, caption_embeds = model(None, all_texts)
 
-    print(caption_embeds.size())
+    # print(caption_embeds.size())
     all_class_labels = [] 
     with torch.no_grad():
         for i, batch in tqdm(enumerate(test_dataloader), total=len(test_dataloader)):
@@ -142,8 +142,9 @@ def visualize_emb(text_emb, audio_emb):
 
 if __name__ =="__main__":
     parser = argparse.ArgumentParser(description="Setting.")
-    parser.add_argument('-c', '--config', default='settings', type=str)
+    parser.add_argument('-c', '--config', default='settings', type=str, required=True)
+    parser.add_argument('-p', '--pretrained-model', type=str, required=True)
 
     args = parser.parse_args()
     config = get_config(args.config)
-    eval_zeroshot_audio_event(config)
+    eval_zeroshot_audio_event(config, args.pretrained_model)

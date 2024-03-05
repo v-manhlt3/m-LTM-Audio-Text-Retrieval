@@ -14,6 +14,8 @@ from torch import nn
 # from tools.random_prj import sliced_Wasserstein
 from tools.mmd import mix_rbf_mmd2
 
+from tools.ot_lib import entropic_orlicz_wasserstein
+
 sigma_list = [1, 2, 4, 8, 16]
 eps = 1e-8
 def gaussian_dotprod_kernel(x, y):
@@ -286,3 +288,32 @@ class MMDLoss(nn.Module):
         YY = K[X_size:, X_size:].mean()
         return XX - 2 * XY + YY
     
+
+class OrclizLoss(nn.Module):
+
+    def __init__(self, epsilon=0.05, rho=1.0):
+        super(OrclizLoss,self).__init__()
+        self.epsilon = epsilon
+        self.rho = rho
+
+    def forward(self, audio_emb, text_emb):
+
+        batch_size = audio_emb.size(0)
+        a = torch.ones(batch_size)/batch_size
+        b = torch.ones(batch_size)/batch_size
+        a = a.to(audio_emb.device)
+        b = b.to(audio_emb.device)
+
+        pi_hat = torch.eye(batch_size).to(audio_emb.device)/(batch_size)
+
+        M_dist = util.cos_sim(audio_emb, text_emb) 
+        M_dist = 1 - M_dist
+        # pdist = torch.nn.PairwiseDistance(p=1)
+        # M_dist = pdist(audio_emb, text_emb)
+        M_dist = M_dist/M_dist.max()
+
+        _, pi = entropic_orlicz_wasserstein(M_dist, a.double(), b.double(), self.rho, self.epsilon, cuda=True)
+        ot_loss = -pi_hat*torch.log(pi)
+        ot_loss = torch.sum(ot_loss)
+
+        return ot_loss
